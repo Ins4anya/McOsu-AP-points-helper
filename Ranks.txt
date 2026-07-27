@@ -1,0 +1,31 @@
+<:hit300:1529560277660467241> - количество 300
+<:hit0:1529560147045781534> - миссы
+<:hit50:1529560131811934328> - количество 50 
+<:hit100:1529560112497164461> - количество 100
+<:arrowgeneric:1529560072324386886> - стрелка, чтобы указывать новую строчку
+<:rankingDsmall:1529560005798268995> - Оценка D
+<:rankingCsmall:1529559957534408724> - C
+<:rankingBsmall:1529559936026284082> - B
+<:rankingAsmall:1529559909782524105> - A
+<:rankingXsmall:1529559871224156433> - SS
+<:rankingSsmall:1529559851368185936> - S
+<:rankingSHsmall:1529559783433048176>- silver S (for HD or FL)
+<:rankingXHsmall:1529559689455730729>- silver SS
+
+
+Как я хочу чтобы это выглядело примерно:
+
+Map name [difficulty] [stars ★ ] +MODS (like +NM or +HDHR)
+
+▸ :id оценки: ▸ 29.95PP (331.60PP for 91.91% FC) ▸ 81.75%
+▸ 1,106,214 ▸ x151/2216 ▸ [1061/136/23/138] ▸ •
+▸ :length: 5:29 ▸ :bpm: 170 ▸ AR 4.8  OD 4.2  HP 2.0  CS 2.0
+
+Try #1  •  On McOsu local scores • Today at [time] HH:MM (например 21:54)
+
+
+python -m mcsu_bot.main -> Команда запуска дискорд-бота
+python web/server.py -> Команда запуска фронтенда
+
+
+python -m mcsu_bot_gui - запуск GUI из консоли

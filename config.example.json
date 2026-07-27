@@ -1,0 +1,12 @@
+{
+    "discord_token": "ВАШ_DISCORD_BOT_TOKEN",
+    "osu_client_id": "ВАШ_OSU_CLIENT_ID",
+    "osu_client_secret": "ВАШ_OSU_CLIENT_SECRET",
+    "scores_db_path": "C:\\Path\\To\\McOsu\\scores.db",
+    "songs_dir": "C:\\Path\\To\\osu!\\Songs",
+    "osu_cache_dir": "cache/osu_files",
+    "ap_db_path": "scores_ap.db",
+    "command_prefix": "!",
+    "cfg_dir": null,
+    "source": "mcsu"
+}

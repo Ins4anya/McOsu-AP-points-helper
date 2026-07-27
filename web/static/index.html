@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>McOsu AP Tracker</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>McOsu AP Tracker</h1>
+            <p class="subtitle">Active Points — статистика активности</p>
+        </header>
+
+        <nav class="tab-bar">
+            <button class="tab-btn active" data-tab="daily">Daily</button>
+            <button class="tab-btn" data-tab="profile">Profile</button>
+        </nav>
+
+        <div id="tab-daily">
+            <section class="chart-section">
+                <canvas id="apChart"></canvas>
+            </section>
+
+            <section class="controls">
+                <label for="datePicker">Выберите дату:</label>
+                <input type="date" id="datePicker">
+                <div class="daily-summary" id="dailySummary"></div>
+            </section>
+
+            <section class="grades-section" id="gradesSection" style="display:none">
+                <div class="grade-counters" id="gradeCounters"></div>
+            </section>
+
+            <section class="goal-section">
+                <div class="goal-controls">
+                    <label for="goalInput">🎯 Цель AP в день:</label>
+                    <input type="number" id="goalInput" min="0" placeholder="0">
+                    <button id="goalSetBtn">Установить</button>
+                    <span class="goal-status" id="goalStatus"></span>
+                </div>
+            </section>
+
+            <section class="scores-section">
+                <table id="scoresTable">
+                    <thead>
+                        <tr>
+                            <th>Карта</th>
+                            <th>Acc</th>
+                            <th>Grade</th>
+                            <th>Моды</th>
+                            <th>Комбо</th>
+                            <th>PP</th>
+                            <th>AP</th>
+                        </tr>
+                    </thead>
+                    <tbody id="scoresBody"></tbody>
+                </table>
+                <p class="empty" id="emptyMsg">Нет скоров за выбранную дату</p>
+            </section>
+        </div>
+
+        <div id="tab-profile" style="display:none">
+            <section class="profile-section">
+                <div class="profile-header">
+                    <h2 class="profile-name" id="profileName">—</h2>
+                </div>
+
+                <div class="profile-stats">
+                    <div class="stat-card">
+                        <span class="stat-label">Total AP</span>
+                        <span class="stat-value" id="profTotalAp">—</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-label">Weighted PP</span>
+                        <span class="stat-value" id="profWeightedPp">—</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-label">Games</span>
+                        <span class="stat-value" id="profPlayCount">—</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-label">Goals Done</span>
+                        <span class="stat-value" id="profGoalsDone">—</span>
+                    </div>
+                </div>
+
+                <div class="profile-grades" id="profileGrades"></div>
+
+                <section class="top-section">
+                    <h3>Топ 5 скоров по AP</h3>
+                    <table id="topTable">
+                        <thead>
+                            <tr>
+                                <th>Карта</th>
+                                <th>Acc</th>
+                                <th>Grade</th>
+                                <th>Моды</th>
+                                <th>Комбо</th>
+                                <th>PP</th>
+                                <th>AP</th>
+                            </tr>
+                        </thead>
+                        <tbody id="topBody"></tbody>
+                    </table>
+                    <p class="empty" id="topEmpty">Нет данных</p>
+                </section>
+            </section>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

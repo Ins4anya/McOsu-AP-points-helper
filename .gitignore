@@ -1,0 +1,24 @@
+# Config with secrets
+config.json
+
+# Databases
+scores_ap.db
+scores_ap.db-shm
+scores_ap.db-wal
+
+# Build artifacts
+build/
+dist/
+*.spec
+
+# Cache
+cache/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environment
+venv/
+.venv/
