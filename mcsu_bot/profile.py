@@ -4,21 +4,8 @@ from pathlib import Path
 from typing import Optional
 
 from . import db_reader
-from . import db_reader_osu
-from .osu_config import read_player_name_osu
 from .embed_builder import calculate_rank
 from .models import GradeCounts, OsuScore, PlayerProfile
-
-
-def read_player_name(cfg_dir: Path | str) -> Optional[str]:
-    cfg_file = Path(cfg_dir) / "osu.cfg"
-    if not cfg_file.exists():
-        return None
-    for line in cfg_file.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if line.startswith("name "):
-            return line.split(" ", 1)[1]
-    return None
 
 
 def _accuracy(score: OsuScore) -> float:
@@ -31,12 +18,8 @@ def _accuracy(score: OsuScore) -> float:
 
 def calculate_profile(scores_db: Path, cfg_dir: Optional[Path] = None,
                       source: str = "mcsu") -> PlayerProfile:
-    if source == "osu":
-        all_scores = db_reader_osu.read_all_scores_osu(scores_db)
-        name = read_player_name_osu(cfg_dir) if cfg_dir else ""
-    else:
-        all_scores = db_reader.read_all_scores(scores_db)
-        name = read_player_name(cfg_dir) if cfg_dir else None
+    all_scores = db_reader.read_all_scores(scores_db)
+    name = ""
 
     profile = PlayerProfile(player_name=name or "")
     profile.play_count = len(all_scores)

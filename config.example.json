@@ -7,6 +7,6 @@
     "osu_cache_dir": "cache/osu_files",
     "ap_db_path": "scores_ap.db",
     "command_prefix": "!",
-    "cfg_dir": null,
-    "source": "mcsu"
+    "source": "mcsu",
+    "osu_username": ""
 }

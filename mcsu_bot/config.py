@@ -16,6 +16,7 @@ class Config:
     source: str = "mcsu"
     command_prefix: str = "!"
     ap_db_path: Optional[Path] = None
+    osu_username: str = ""
 
 
 def load_config(path: str = "config.json") -> Config:
@@ -37,4 +38,5 @@ def load_config(path: str = "config.json") -> Config:
         cfg_dir=Path(cfg_dir),
         command_prefix=data.get("command_prefix", "!"),
         ap_db_path=Path(ap_db_path) if ap_db_path else None,
+        osu_username=data.get("osu_username", ""),
     )

@@ -5,10 +5,9 @@ from dataclasses import dataclass
 
 from mcsu_bot.models import OsuScore, BeatmapMeta, PPResult
 from mcsu_bot.db_reader import read_latest_score as read_latest_score_mcsu
-from mcsu_bot.db_reader_osu import read_latest_score_osu
 from mcsu_bot.pp_calculator import calculate_pp
 from mcsu_bot.ap_calculator import calculate_ap, explain_ap, APBreakdown, _calculate_grade
-from mcsu_bot.osu_api import OsuAPI
+from mcsu_bot.osu_api import OsuAPI, _api_score_to_osu_score
 from mcsu_bot.database import Database
 
 
@@ -27,8 +26,6 @@ class ScoreFetchResult:
 
 
 def _get_latest_score(config):
-    if getattr(config, "source", "mcsu") == "osu":
-        return read_latest_score_osu(config.scores_db_path)
     return read_latest_score_mcsu(config.scores_db_path)
 
 
@@ -100,6 +97,117 @@ class ScoreFetcher(threading.Thread):
             self.on_done(result)
             return
 
+        result.score = score
+        result.meta = meta
+        result.pp_result = pp_result
+        total_hits = score.count300 + score.count100 + score.count50 + score.count_miss
+        result.grade = _calculate_grade(score.count300, total_hits, score.count50, score.count_miss, score.mods)
+        result.ap = calculate_ap(score, meta, pp_result.accuracy, pp_result.star_rating_mods, pp_result)
+        result.breakdown = explain_ap(score, meta, pp_result.accuracy, pp_result.star_rating_mods, pp_result)
+        result.success = True
+
+        db_path = self.config.ap_db_path or (Path(__file__).resolve().parent.parent.parent / "scores_ap.db")
+        db = Database(db_path)
+        try:
+            db.connect()
+            result.inserted = db.insert_score(score, meta, pp_result.accuracy, result.grade, result.ap)
+            if not result.inserted:
+                result.duplicate = True
+        except Exception as e:
+            result.error = f"DB error: {e}"
+        finally:
+            db.close()
+
+        self.on_done(result)
+
+
+class OsuApiScoreFetcher(threading.Thread):
+    def __init__(self, config, osu_username, on_done, on_status=None):
+        super().__init__(daemon=True)
+        self.config = config
+        self.osu_username = osu_username
+        self.on_done = on_done
+        self.on_status = on_status or (lambda msg: None)
+
+    def run(self):
+        result = ScoreFetchResult()
+        self.on_status(f"Fetching latest score for '{self.osu_username}' from osu! API...")
+
+        async def _fetch():
+            api = OsuAPI(
+                self.config.osu_client_id,
+                self.config.osu_client_secret,
+                self.config.osu_cache_dir,
+                self.config.songs_dir,
+            )
+            try:
+                raw_scores = await api.get_recent_scores(self.osu_username)
+                if not raw_scores:
+                    return None, "No recent scores found"
+
+                api_score = raw_scores[0]
+                score = _api_score_to_osu_score(api_score)
+
+                beatmap_id = api_score.get("beatmap", {}).get("id")
+                if not beatmap_id:
+                    return None, "No beatmap ID in API response"
+
+                meta = await api.lookup_beatmap_by_id(beatmap_id)
+                if meta is None:
+                    return None, "Beatmap not found on osu! servers"
+
+                osu_file = None
+                if self.config.songs_dir:
+                    try:
+                        osu_file = await api.download_beatmap_file(
+                            meta.beatmap_id or 0, meta.beatmapset_id or 0, ""
+                        )
+                    except Exception:
+                        osu_file = None
+
+                return (api_score, score, meta, osu_file), None
+            finally:
+                await api.close()
+
+        try:
+            loop = asyncio.new_event_loop()
+            data, error = loop.run_until_complete(_fetch())
+            loop.close()
+        except Exception as e:
+            result.error = f"osu! API error: {e}"
+            self.on_done(result)
+            return
+
+        if error:
+            result.error = error
+            self.on_done(result)
+            return
+
+        api_score, score, meta, osu_file = data
+
+        if osu_file:
+            try:
+                pp_result = calculate_pp(osu_file, score)
+            except Exception:
+                pp_result = PPResult(
+                    pp=score.pp,
+                    accuracy=sum((
+                        score.count300 * 300 + score.count100 * 100 + score.count50 * 50
+                    )) / max(1, sum((
+                        score.count300 + score.count100 + score.count50 + score.count_miss
+                    )) * 300),
+                    star_rating_mods=meta.star_rating,
+                )
+        else:
+            total_hits = score.count300 + score.count100 + score.count50 + score.count_miss
+            acc = (300 * score.count300 + 100 * score.count100 + 50 * score.count50) / (300 * total_hits) if total_hits > 0 else 1.0
+            pp_result = PPResult(
+                pp=score.pp,
+                accuracy=acc,
+                star_rating_mods=meta.star_rating,
+            )
+
+        score.max_possible_combo = pp_result.max_combo
         result.score = score
         result.meta = meta
         result.pp_result = pp_result

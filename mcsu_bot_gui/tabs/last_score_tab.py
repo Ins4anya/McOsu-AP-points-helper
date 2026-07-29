@@ -1,6 +1,6 @@
 import customtkinter as ctk
 
-from mcsu_bot_gui.workers.score_worker import ScoreFetcher, AutoScanWorker
+from mcsu_bot_gui.workers.score_worker import ScoreFetcher, OsuApiScoreFetcher, AutoScanWorker
 from mcsu_bot.profile import calculate_profile
 
 
@@ -46,6 +46,7 @@ class LastScoreTab(ctk.CTkFrame):
 
     def _setup_ui(self):
         self._build_header()
+        self._build_source_row()
         self._build_title_tile()
         self._build_stats_grid()
         self._build_hits_row()
@@ -86,6 +87,44 @@ class LastScoreTab(ctk.CTkFrame):
                                         text_color="#fff",
                                         font=ctk.CTkFont(size=13, weight="bold"))
         self.fetch_btn.pack(side="right")
+
+    def _build_source_row(self):
+        row = ctk.CTkFrame(self, fg_color="transparent")
+        row.pack(fill="x", pady=(0, 10))
+
+        ctk.CTkLabel(row, text="Source:", font=ctk.CTkFont(size=12),
+                     text_color="#888").pack(side="left")
+
+        self.source_var = ctk.StringVar(value=self.config.source)
+        self.username_var = ctk.StringVar(value=self.config.osu_username)
+
+        def _on_source_change():
+            self.config.source = self.source_var.get()
+            if self.source_var.get() == "api":
+                self.username_entry.configure(state="normal")
+            else:
+                self.username_entry.configure(state="disabled")
+
+        def _on_username_change():
+            self.config.osu_username = self.username_var.get()
+
+        for val, label in [("mcsu", "McOsu"), ("api", "osu! API")]:
+            rb = ctk.CTkRadioButton(row, text=label, variable=self.source_var,
+                                     value=val, font=ctk.CTkFont(size=12),
+                                     fg_color=ACCENT, hover_color="#6CB4EE",
+                                     text_color="#aaa", command=_on_source_change)
+            rb.pack(side="left", padx=(8, 4))
+
+        ctk.CTkLabel(row, text="User:", font=ctk.CTkFont(size=12),
+                     text_color="#888").pack(side="left", padx=(16, 4))
+        self.username_entry = ctk.CTkEntry(row, textvariable=self.username_var,
+                                            font=ctk.CTkFont(size=12), width=130,
+                                            fg_color="#0f0f1a", border_color="#2a2a3e")
+        self.username_entry.pack(side="left")
+        self.username_entry.bind("<KeyRelease>", lambda e: _on_username_change())
+
+        if self.source_var.get() != "api":
+            self.username_entry.configure(state="disabled")
 
     def _build_title_tile(self):
         self.title_frame = ctk.CTkFrame(self, fg_color=GLASS_BG, border_color=GLASS_BORDER,
@@ -233,6 +272,10 @@ class LastScoreTab(ctk.CTkFrame):
     def _start_autoscan(self):
         if self._auto_scanner:
             return
+        if self.source_var.get() != "mcsu":
+            self._set_status("Auto-scan is only available in McOsu source mode", "#ffaa44")
+            self.autoscan_var.set(False)
+            return
         from mcsu_bot_gui.workers.score_worker import _get_latest_score
         initial = None
         try:
@@ -264,16 +307,18 @@ class LastScoreTab(ctk.CTkFrame):
         self.after(0, self._on_fetch)
 
     def _on_profile_toggle(self):
-        if self.profile_var.get():
-            self._load_profile()
-        else:
+        if not self.profile_var.get():
             self.profile_frame.pack_forget()
+            return
+        if self.source_var.get() != "mcsu":
+            self._set_status("Profile is only available in McOsu source mode", "#ffaa44")
+            self.profile_var.set(False)
+            return
+        self._load_profile()
 
     def _load_profile(self, animate_grade=None):
         try:
-            source = getattr(self.config, "source", "mcsu")
-            profile = calculate_profile(self.config.scores_db_path, self.config.cfg_dir,
-                                        source=source)
+            profile = calculate_profile(self.config.scores_db_path, self.config.cfg_dir)
         except Exception as e:
             self._set_status(f"Profile error: {e}", "#ff6666")
             return
@@ -312,12 +357,26 @@ class LastScoreTab(ctk.CTkFrame):
 
     def _on_fetch(self):
         self.fetch_btn.configure(state="disabled", text="Loading...")
-        self._set_status("Fetching latest score...", "#888")
-        self.fetcher = ScoreFetcher(
-            self.config,
-            on_done=self._on_result,
-            on_status=lambda msg: self.after(0, lambda: self._set_status(msg, "#888")),
-        )
+        source = self.source_var.get()
+        if source == "api":
+            username = self.username_var.get()
+            if not username:
+                self._set_status("Enter an osu! username first", "#ff6666")
+                self.fetch_btn.configure(state="normal", text="Get Last Score")
+                return
+            self._set_status(f"Fetching latest score for '{username}'...", "#888")
+            self.fetcher = OsuApiScoreFetcher(
+                self.config, username,
+                on_done=self._on_result,
+                on_status=lambda msg: self.after(0, lambda: self._set_status(msg, "#888")),
+            )
+        else:
+            self._set_status("Fetching latest score...", "#888")
+            self.fetcher = ScoreFetcher(
+                self.config,
+                on_done=self._on_result,
+                on_status=lambda msg: self.after(0, lambda: self._set_status(msg, "#888")),
+            )
         self.fetcher.start()
 
     def _on_result(self, result):

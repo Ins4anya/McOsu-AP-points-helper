@@ -6,8 +6,7 @@ from discord.ext import commands
 
 from .config import Config
 from .db_reader import read_latest_score as read_latest_score_mcsu
-from .db_reader_osu import read_latest_score_osu
-from .osu_api import OsuAPI
+from .osu_api import OsuAPI, _api_score_to_osu_score
 from .pp_calculator import calculate_pp
 from .embed_builder import build_embed
 from .ap_calculator import calculate_ap, _calculate_grade
@@ -44,26 +43,51 @@ class OsuCommands(commands.Cog):
     @commands.command(name="rs", aliases=["last"])
     async def last_score(self, ctx: commands.Context):
         async with ctx.typing():
-            try:
-                source = getattr(self.bot.config, "source", "mcsu")
-                reader = read_latest_score_osu if source == "osu" else read_latest_score_mcsu
-                score = reader(self.bot.config.scores_db_path)
-            except Exception as e:
-                await ctx.send(f"Failed to read scores.db: {e}")
-                return
+            source = getattr(self.bot.config, "source", "mcsu")
 
-            try:
-                meta = await self.bot.osu_api.lookup_beatmap(score.beatmap_md5)
-            except Exception as e:
-                await ctx.send(f"osu! API error: {e}")
-                return
+            if source == "api":
+                username = self.bot.config.osu_username
+                if not username:
+                    await ctx.send("No osu! username configured. Set 'osu_username' in config.json.")
+                    return
+                try:
+                    raw_scores = await self.bot.osu_api.get_recent_scores(username)
+                except Exception as e:
+                    await ctx.send(f"osu! API error: {e}")
+                    return
+                if not raw_scores:
+                    await ctx.send("No recent scores found.")
+                    return
+                api_score = raw_scores[0]
+                score = _api_score_to_osu_score(api_score)
 
-            if meta is None:
-                await ctx.send(
-                    f"Beatmap with MD5 `{score.beatmap_md5}` not found — "
-                    "not on osu! servers and no matching .osu file in local Songs folder."
-                )
-                return
+                beatmap_id = api_score.get("beatmap", {}).get("id")
+                if not beatmap_id:
+                    await ctx.send("No beatmap ID in API response.")
+                    return
+                meta = await self.bot.osu_api.lookup_beatmap_by_id(beatmap_id)
+                if meta is None:
+                    await ctx.send("Beatmap not found on osu! servers.")
+                    return
+            else:
+                try:
+                    score = read_latest_score_mcsu(self.bot.config.scores_db_path)
+                except Exception as e:
+                    await ctx.send(f"Failed to read scores.db: {e}")
+                    return
+
+                try:
+                    meta = await self.bot.osu_api.lookup_beatmap(score.beatmap_md5)
+                except Exception as e:
+                    await ctx.send(f"osu! API error: {e}")
+                    return
+
+                if meta is None:
+                    await ctx.send(
+                        f"Beatmap with MD5 `{score.beatmap_md5}` not found — "
+                        "not on osu! servers and no matching .osu file in local Songs folder."
+                    )
+                    return
 
             try:
                 osu_file = await self.bot.osu_api.download_beatmap_file(

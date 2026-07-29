@@ -2,12 +2,13 @@ import asyncio
 import hashlib
 import json
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 import aiohttp
 
-from .models import BeatmapMeta
+from .models import BeatmapMeta, OsuScore
 
 
 def _parse_osu_header(osu_bytes: bytes) -> dict:
@@ -105,6 +106,95 @@ def _build_md5_index(songs_dir: Path, index_path: Path):
     index_path.parent.mkdir(parents=True, exist_ok=True)
     index_path.write_text(json.dumps(index, ensure_ascii=False), encoding="utf-8")
     return index
+
+
+MODS_STRING_TO_BIT = {
+    "NF": 1 << 0, "EZ": 1 << 1, "TD": 1 << 2, "HD": 1 << 3,
+    "HR": 1 << 4, "SD": 1 << 5, "DT": 1 << 6, "RX": 1 << 7,
+    "HT": 1 << 8, "NC": 1 << 9, "FL": 1 << 10, "AU": 1 << 11,
+    "SO": 1 << 12, "AP": 1 << 13, "PF": 1 << 14, "4K": 1 << 15,
+    "5K": 1 << 16, "6K": 1 << 17, "7K": 1 << 18, "8K": 1 << 19,
+    "FI": 1 << 20, "RN": 1 << 21, "CN": 1 << 22, "TP": 1 << 23,
+    "9K": 1 << 24, "KC": 1 << 25, "1K": 1 << 26, "3K": 1 << 27,
+    "2K": 1 << 28, "V2": 1 << 29, "MR": 1 << 30,
+}
+
+
+def _mods_strings_to_int(mods: list[str]) -> int:
+    bits = 0
+    for m in mods:
+        bit = MODS_STRING_TO_BIT.get(m)
+        if bit is not None:
+            bits |= bit
+    return bits
+
+
+def _parse_iso_timestamp(iso: str) -> int:
+    if not iso:
+        return int(time.time())
+    try:
+        dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+        return int(dt.timestamp())
+    except Exception:
+        return int(time.time())
+
+
+def _api_score_to_osu_score(api_score: dict) -> OsuScore:
+    stats = api_score.get("statistics", {})
+    mods_str_list = api_score.get("mods", [])
+    mods_int = _mods_strings_to_int(mods_str_list)
+    created_at = api_score.get("created_at", "")
+    timestamp = _parse_iso_timestamp(created_at)
+    max_combo = api_score.get("max_combo", 0)
+
+    count300 = stats.get("count_300", 0)
+    count100 = stats.get("count_100", 0)
+    count50 = stats.get("count_50", 0)
+    count_miss = stats.get("count_miss", 0)
+    count_geki = stats.get("count_geki", 0)
+    count_katu = stats.get("count_katu", 0)
+
+    return OsuScore(
+        beatmap_md5="",
+        score=api_score.get("score", 0),
+        max_combo=max_combo,
+        count300=count300,
+        count100=count100,
+        count50=count50,
+        count_miss=count_miss,
+        count_geki=count_geki,
+        count_katu=count_katu,
+        mods=mods_int,
+        perfect=False,
+        timestamp=timestamp,
+        player_name=api_score.get("user", {}).get("username", ""),
+        pp=api_score.get("pp", 0.0) or 0.0,
+        max_possible_combo=0,
+    )
+
+
+def _api_beatmap_to_meta(beatmap: dict) -> Optional[BeatmapMeta]:
+    bmset = beatmap.get("beatmapset")
+    if not bmset:
+        return None
+    return BeatmapMeta(
+        beatmap_id=beatmap.get("id"),
+        beatmapset_id=beatmap.get("beatmapset_id"),
+        artist=bmset.get("artist", ""),
+        title=bmset.get("title", ""),
+        difficulty=beatmap.get("version", ""),
+        creator=bmset.get("creator", ""),
+        bpm=beatmap.get("bpm", 0.0),
+        cs=beatmap.get("cs", 0.0),
+        ar=beatmap.get("ar", 0.0),
+        od=beatmap.get("accuracy", 0.0),
+        hp=beatmap.get("drain", 0.0),
+        star_rating=beatmap.get("difficulty_rating", 0.0),
+        length=beatmap.get("total_length", 0),
+        cover_url=bmset.get("covers", {}).get("cover@2x", ""),
+        map_url=f"https://osu.ppy.sh/beatmapsets/{beatmap.get('beatmapset_id', 0)}#osu/{beatmap.get('id', 0)}",
+        status=beatmap.get("status", ""),
+    )
 
 
 class OsuAPI:
@@ -221,6 +311,43 @@ class OsuAPI:
             status=raw["status"],
         )
 
+    async def lookup_beatmap_by_id(self, beatmap_id: int) -> Optional[BeatmapMeta]:
+        await self._ensure_token()
+        session = await self._get_session()
+        async with session.get(
+            f"https://osu.ppy.sh/api/v2/beatmaps/{beatmap_id}",
+            headers={"Authorization": f"Bearer {self._token}"},
+        ) as resp:
+            if resp.status == 404:
+                return None
+            if resp.status != 200:
+                text = await resp.text()
+                raise ValueError(f"osu! API beatmap by id failed ({resp.status}): {text}")
+            raw = await resp.json()
+
+        bmset = raw.get("beatmapset")
+        if not bmset:
+            return None
+        return BeatmapMeta(
+            beatmap_id=raw["id"],
+            beatmapset_id=raw["beatmapset_id"],
+            artist=bmset["artist"],
+            title=bmset["title"],
+            difficulty=raw["version"],
+            creator=bmset["creator"],
+            bpm=raw["bpm"],
+            cs=raw["cs"],
+            ar=raw["ar"],
+            od=raw["accuracy"],
+            hp=raw["drain"],
+            star_rating=raw["difficulty_rating"],
+            length=raw["total_length"],
+            bg_url=bmset.get("covers", {}).get("card@2x", ""),
+            cover_url=bmset.get("covers", {}).get("cover@2x", ""),
+            map_url=f"https://osu.ppy.sh/beatmapsets/{raw['beatmapset_id']}#osu/{raw['id']}",
+            status=raw["status"],
+        )
+
     async def download_beatmap_file(self, beatmap_id: int = 0, beatmapset_id: int = 0, md5: str = "") -> bytes:
         cache_name = f"{beatmap_id}.osu" if beatmap_id else f"{md5}.osu"
         cache_path = self.cache_dir / cache_name
@@ -250,6 +377,36 @@ class OsuAPI:
             f".osu file for beatmap #{beatmap_id or md5} not found locally. "
             "Set 'songs_dir' in config.json to your osu! Songs folder."
         )
+
+    async def lookup_user(self, user: str) -> dict:
+        await self._ensure_token()
+        session = await self._get_session()
+        async with session.get(
+            f"https://osu.ppy.sh/api/v2/users/{user}",
+            headers={"Authorization": f"Bearer {self._token}"},
+        ) as resp:
+            if resp.status == 404:
+                raise ValueError(f"User '{user}' not found")
+            if resp.status != 200:
+                text = await resp.text()
+                raise ValueError(f"osu! API user lookup failed ({resp.status}): {text}")
+            data = await resp.json()
+            return data
+
+    async def get_recent_scores(self, user: str, mode: str = "osu") -> list[dict]:
+        user_data = await self.lookup_user(user)
+        user_id = user_data["id"]
+        await self._ensure_token()
+        session = await self._get_session()
+        async with session.get(
+            f"https://osu.ppy.sh/api/v2/users/{user_id}/scores/recent",
+            params={"mode": mode, "include_fails": 0},
+            headers={"Authorization": f"Bearer {self._token}"},
+        ) as resp:
+            if resp.status != 200:
+                text = await resp.text()
+                raise ValueError(f"osu! API recent scores failed ({resp.status}): {text}")
+            return await resp.json()
 
     async def close(self):
         if self._session and not self._session.closed:

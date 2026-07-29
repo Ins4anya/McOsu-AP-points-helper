@@ -1,6 +1,5 @@
 import customtkinter as ctk
 
-from mcsu_bot.osu_config import find_osu_scores_db, find_osu_dir
 from mcsu_bot_gui.workers.process_worker import ProcessWorker, free_port
 
 
@@ -8,8 +7,6 @@ class ControlTab(ctk.CTkFrame):
     def __init__(self, master, config, **kwargs):
         super().__init__(master, **kwargs)
         self.config = config
-        self._osu_db_path = find_osu_scores_db()
-        self._osu_dir = find_osu_dir()
         free_port(8080)
         self.bot_process = ProcessWorker(
             on_output=self._on_output,
@@ -40,19 +37,35 @@ class ControlTab(ctk.CTkFrame):
                      text_color="#aaa").pack(side="left", padx=(16, 8), pady=12)
 
         self.source_var = ctk.StringVar(value=self.config.source)
+        self.username_var = ctk.StringVar(value=self.config.osu_username)
+
         def _on_source_change():
             self.config.source = self.source_var.get()
-            if self.source_var.get() == "osu":
-                if self._osu_db_path:
-                    self.config.scores_db_path = self._osu_db_path
-                if self._osu_dir:
-                    self.config.cfg_dir = self._osu_dir
-        for val, label in [("mcsu", "McOsu"), ("osu", "osu! stable")]:
+            if self.source_var.get() == "api":
+                self.username_entry.configure(state="normal")
+            else:
+                self.username_entry.configure(state="disabled")
+
+        def _on_username_change():
+            self.config.osu_username = self.username_var.get()
+
+        for val, label in [("mcsu", "McOsu"), ("api", "osu! API")]:
             rb = ctk.CTkRadioButton(card, text=label, variable=self.source_var,
                                      value=val, font=ctk.CTkFont(size=13),
                                      fg_color="#4A9BE8", hover_color="#6CB4EE",
                                      command=_on_source_change)
             rb.pack(side="left", padx=(4, 12), pady=12)
+
+        ctk.CTkLabel(card, text="Username:", font=ctk.CTkFont(size=13),
+                     text_color="#888").pack(side="left", padx=(20, 6))
+        self.username_entry = ctk.CTkEntry(card, textvariable=self.username_var,
+                                            font=ctk.CTkFont(size=13), width=150,
+                                            fg_color="#0f0f1a", border_color="#2a2a3e")
+        self.username_entry.pack(side="left", padx=(0, 16), pady=12)
+        self.username_entry.bind("<KeyRelease>", lambda e: _on_username_change())
+
+        if self.source_var.get() != "api":
+            self.username_entry.configure(state="disabled")
 
     def _build_bot_section(self):
         card = ctk.CTkFrame(self, fg_color="#1a1a2e", border_color="#2a2a3e", border_width=1)

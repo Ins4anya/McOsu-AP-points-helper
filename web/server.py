@@ -12,8 +12,6 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from mcsu_bot.profile import read_player_name
-from mcsu_bot.osu_config import read_player_name_osu
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
@@ -25,18 +23,11 @@ else:
 DEFAULT_DB_PATH = BASE_DIR / "scores_ap.db"
 
 config_path = BASE_DIR / "config.json"
-CFG_DIR: Optional[Path] = None
 if config_path.exists():
     with open(config_path, encoding="utf-8") as f:
         cfg = json.load(f)
     raw = cfg.get("ap_db_path")
     DB_PATH = Path(raw) if raw else DEFAULT_DB_PATH
-    scores_db = cfg.get("scores_db_path")
-    if scores_db:
-        CFG_DIR = Path(scores_db).parent / "cfg"
-    raw_cfg = cfg.get("cfg_dir")
-    if raw_cfg:
-        CFG_DIR = Path(raw_cfg)
 else:
     DB_PATH = DEFAULT_DB_PATH
 
@@ -127,27 +118,6 @@ async def get_profile(goal: int = Query(0), source: str = Query("mcsu")):
         return JSONResponse({"error": "no data"}, status_code=200)
 
     player_name = "Unknown"
-    if source == "osu":
-        try:
-            name = read_player_name_osu(CFG_DIR)
-            if name:
-                player_name = name
-        except Exception:
-            pass
-    elif CFG_DIR:
-        try:
-            name = read_player_name(CFG_DIR)
-            if name:
-                player_name = name
-        except Exception:
-            pass
-    if player_name == "Unknown" and CFG_DIR:
-        try:
-            name = read_player_name_osu(CFG_DIR)
-            if name:
-                player_name = name
-        except Exception:
-            pass
 
     grades_dict = {"XH": 0, "X": 0, "SH": 0, "S": 0, "A": 0, "B": 0, "C": 0, "D": 0}
     for g in grades:
