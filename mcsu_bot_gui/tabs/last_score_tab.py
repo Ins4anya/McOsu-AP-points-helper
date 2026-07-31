@@ -1,6 +1,17 @@
 import customtkinter as ctk
+import threading
 
-from mcsu_bot_gui.workers.score_worker import ScoreFetcher, OsuApiScoreFetcher, AutoScanWorker
+from mcsu_bot.server_client import (
+    check_auth,
+    get_server_url,
+    sync_score,
+)
+from mcsu_bot_gui.workers.score_worker import (
+    ScoreFetcher,
+    OsuApiScoreFetcher,
+    AutoScanWorker,
+    OsuApiAutoScanWorker,
+)
 from mcsu_bot.profile import calculate_profile
 
 
@@ -81,12 +92,26 @@ class LastScoreTab(ctk.CTkFrame):
                                             fg_color=ACCENT, hover_color="#6CB4EE")
         self.autoscan_cb.pack(side="left", padx=(0, 6))
 
+        self.autosync_var = ctk.BooleanVar(value=False)
+        self.autosync_cb = ctk.CTkCheckBox(controls, text="Auto-sync", variable=self.autosync_var,
+                                            font=ctk.CTkFont(size=12), text_color="#aaa",
+                                            fg_color=ACCENT, hover_color="#6CB4EE")
+        self.autosync_cb.pack(side="left", padx=(0, 6))
+
         self.fetch_btn = ctk.CTkButton(controls, text="Get Last Score",
                                         command=self._on_fetch,
                                         fg_color=ACCENT, hover_color="#6CB4EE",
                                         text_color="#fff",
                                         font=ctk.CTkFont(size=13, weight="bold"))
         self.fetch_btn.pack(side="right")
+
+        self.sync_btn = ctk.CTkButton(controls, text="Sync to Server",
+                                       command=self._on_sync,
+                                       fg_color="#2a2a3e", hover_color="#3a3a5e",
+                                       text_color="#aaa",
+                                       font=ctk.CTkFont(size=11),
+                                       state="disabled")
+        self.sync_btn.pack(side="right", padx=(0, 6))
 
     def _build_source_row(self):
         row = ctk.CTkFrame(self, fg_color="transparent")
@@ -272,25 +297,43 @@ class LastScoreTab(ctk.CTkFrame):
     def _start_autoscan(self):
         if self._auto_scanner:
             return
-        if self.source_var.get() != "mcsu":
-            self._set_status("Auto-scan is only available in McOsu source mode", "#ffaa44")
+
+        source = self.source_var.get()
+
+        if source == "mcsu":
+            from mcsu_bot_gui.workers.score_worker import _get_latest_score
+            initial = None
+            try:
+                initial = _get_latest_score(self.config).timestamp
+            except Exception:
+                pass
+
+            self._auto_scanner = AutoScanWorker(
+                poll_fn=lambda: _get_latest_score(self.config).timestamp,
+                on_new_score=self._on_auto_update,
+                last_marker=initial,
+            )
+        elif source == "api":
+            username = self.username_var.get().strip()
+            if not username:
+                self._set_status("Auto-scan: enter an osu! username first", "#ffaa44")
+                self.autoscan_var.set(False)
+                return
+
+            self._auto_scanner = OsuApiAutoScanWorker(
+                self.config,
+                username,
+                on_new_score=self._on_auto_update,
+            )
+        else:
+            self._set_status("Auto-scan: unknown source", "#ffaa44")
             self.autoscan_var.set(False)
             return
-        from mcsu_bot_gui.workers.score_worker import _get_latest_score
-        initial = None
-        try:
-            initial = _get_latest_score(self.config).timestamp
-        except Exception:
-            pass
 
-        self._auto_scanner = AutoScanWorker(
-            self.config.scores_db_path,
-            self.config,
-            on_new_score=self._on_auto_update,
-            last_timestamp=initial,
-        )
         self._auto_scanner.start()
-        self._set_status("Auto-scan: polling every 3s...", "#66ff99")
+        self._set_status(
+            f"Auto-scan ({source}): polling every 3s...", "#66ff99"
+        )
 
     def stop_autoscan(self):
         if self._auto_scanner:
@@ -389,8 +432,69 @@ class LastScoreTab(ctk.CTkFrame):
         self._result = result
         self._display_score(result)
 
+        server_url = get_server_url()
+        if server_url and check_auth(server_url):
+            self.sync_btn.configure(state="normal")
+        else:
+            self.sync_btn.configure(state="disabled")
+
+        if self.autosync_var.get() and result.inserted:
+            if server_url and check_auth(server_url):
+                self._auto_sync(server_url)
+            else:
+                self._set_status("Auto-sync: server not configured", "#ffaa44")
+
         if self.profile_var.get():
             self._load_profile(animate_grade=result.grade)
+
+    def _on_sync(self):
+        if not self._result:
+            return
+        self.sync_btn.configure(state="disabled", text="Syncing...")
+        server_url = get_server_url()
+        self._send_score(server_url)
+
+    def _auto_sync(self, server_url: str):
+        self._set_status("Auto-sync: sending to server...", "#888")
+        self._send_score(server_url)
+
+    def _send_score(self, server_url: str):
+        if not self._result:
+            return
+        score_data = self._build_score_payload(self._result)
+
+        def _do_sync():
+            ok, msg = sync_score(server_url, score_data)
+            self.after(0, lambda: self._sync_done(ok, msg))
+
+        threading.Thread(target=_do_sync, daemon=True).start()
+
+    def _build_score_payload(self, r) -> dict:
+        from datetime import datetime, timezone
+        played_at = datetime.fromtimestamp(r.score.timestamp, tz=timezone.utc).isoformat()
+        return {
+            "beatmap_id": r.meta.beatmap_id or 0,
+            "beatmap_title": f"{r.meta.artist} - {r.meta.title} [{r.meta.difficulty}]",
+            "beatmap_url": r.meta.map_url or "",
+            "mods": r.breakdown.mods_str if r.breakdown else "NM",
+            "source": self.source_var.get(),
+            "md5": r.score.beatmap_md5,
+            "accuracy": r.pp_result.accuracy,
+            "max_combo": r.score.max_combo,
+            "max_possible_combo": r.score.max_possible_combo,
+            "pp": r.pp_result.pp,
+            "ap": r.ap,
+            "rank": r.grade,
+            "density": r.breakdown.density if r.breakdown else 0.0,
+            "aim": r.breakdown.stars_aim if r.breakdown else 0.0,
+            "stars": r.breakdown.star_rating if r.breakdown else r.meta.star_rating,
+            "ar": r.meta.ar,
+            "played_at": played_at,
+        }
+
+    def _sync_done(self, ok: bool, msg: str):
+        self.sync_btn.configure(state="normal", text="Sync to Server")
+        self._set_status(f"Server: {msg}", "#66ff99" if ok else "#ff6666")
 
     def _display_score(self, r):
         title = f"{r.meta.artist} - {r.meta.title} [{r.meta.difficulty}]"

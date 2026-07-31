@@ -5,11 +5,11 @@ config.json
 scores_ap.db
 scores_ap.db-shm
 scores_ap.db-wal
+scores_server.db
 
 # Build artifacts
 build/
 dist/
-*.spec
 
 # Cache
 cache/
@@ -23,3 +23,9 @@ __pycache__/
 venv/
 .venv/
 McOsuTracker_v0.1.zip
+McOsuTracker_v0.2.zip
+*.zip
+
+# Server
+.env
+server_token.json

@@ -1,0 +1,420 @@
+{% extends "base.html" %}
+{% block title %}Profile — McOsu AP Tracker{% endblock %}
+{% block content %}
+<div id="profile">
+    <div class="profile-banner"></div>
+    <div class="profile-header">
+        <img id="avatar" src="" alt="avatar" class="avatar">
+        <div class="profile-info">
+            <h2 id="username">Loading...</h2>
+            <div class="profile-actions">
+                <button class="btn btn-sm" id="copyTokenBtn">Copy token</button>
+                <a href="/" class="btn btn-sm btn-ghost" id="logoutBtn">Logout</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="token-hint" id="tokenHint" style="display:none">
+        <strong>What is this token?</strong> The token links your desktop app (McOsuTracker) to this server. Open the app,
+        paste your Server URL, and use this token to sync your scores automatically.
+    </div>
+
+    <div class="stats-grid" id="statsGrid">
+        <div class="stat-card skeleton"></div>
+        <div class="stat-card skeleton"></div>
+        <div class="stat-card skeleton"></div>
+        <div class="stat-card skeleton"></div>
+    </div>
+
+    <div class="source-row" id="sourceRow" style="display:none">
+        <span class="source-badge source-mcsu">McOsu: <strong id="mcsu-count">0</strong></span>
+        <span class="source-badge source-api">osu! API: <strong id="api-count">0</strong></span>
+    </div>
+
+    <div class="goal-card" id="goalCard" style="display:none">
+        <div class="goal-controls">
+            <label for="goalInput">🎯 Daily AP goal:</label>
+            <input type="number" id="goalInput" min="0" placeholder="0">
+            <button class="btn btn-sm" id="goalSetBtn">Set</button>
+            <span class="goal-status" id="goalStatus"></span>
+        </div>
+    </div>
+
+    <div class="card" id="gradesCard" style="display:none">
+        <h3>Grade Distribution</h3>
+        <div class="grades-row" id="gradesRow"></div>
+    </div>
+
+    <div class="card" id="dailyCard" style="display:none">
+        <h3>Daily</h3>
+        <div class="daily-controls">
+            <label for="dailyDate">📅</label>
+            <input type="date" id="dailyDate">
+            <span class="daily-summary" id="dailySummary"></span>
+            <span class="daily-goal-status" id="dailyGoalStatus"></span>
+        </div>
+        <div class="chart-wrap">
+            <canvas id="dailyChart"></canvas>
+        </div>
+        <p class="empty" id="dailyEmpty" style="display:none">No scores for this day</p>
+        <div class="daily-grades" id="dailyGrades" style="display:none"></div>
+        <div class="table-wrap" id="dailyTableWrap" style="display:none">
+            <table id="dailyTable">
+                <thead>
+                    <tr>
+                        <th>Map</th>
+                        <th>Acc</th>
+                        <th>Grade</th>
+                        <th>Mods</th>
+                        <th>Combo</th>
+                        <th>PP</th>
+                        <th>AP</th>
+                        <th>Source</th>
+                    </tr>
+                </thead>
+                <tbody id="dailyBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3>Top 5 Scores by AP</h3>
+        <div class="table-wrap">
+            <table id="topTable">
+                <thead>
+                    <tr>
+                        <th>Map</th>
+                        <th>Acc</th>
+                        <th>Grade</th>
+                        <th>Mods</th>
+                        <th>Combo</th>
+                        <th>PP</th>
+                        <th>AP</th>
+                    </tr>
+                </thead>
+                <tbody id="topBody"></tbody>
+            </table>
+        </div>
+        <p class="empty" id="topEmpty">No scores yet — sync your first score from the desktop app!</p>
+    </div>
+</div>
+
+<script>
+const TOKEN = "{{ token }}";
+const GRADE_COLORS = {
+    'XH': '#ffd700', 'X': '#ffd700', 'SH': '#ff69b4', 'S': '#ff69b4',
+    'A': '#00ff7f', 'B': '#1e90ff', 'C': '#ff4500', 'D': '#ff0000',
+};
+const GRADE_ORDER = ['XH', 'X', 'SH', 'S', 'A', 'B', 'C', 'D'];
+let dailyGoal = 0;
+let dailyChart = null;
+let dailyData = [];
+
+function truncateTitle(title, maxLen = 55) {
+    return title.length > maxLen ? title.slice(0, maxLen) + '...' : title;
+}
+
+function formatNum(n) {
+    if (typeof n !== 'number') return n;
+    return n.toLocaleString('ru-RU');
+}
+
+async function api(url, opts = {}) {
+    const res = await fetch(url, {
+        ...opts,
+        headers: { ...(opts.headers || {}), "Authorization": `Bearer ${TOKEN}` }
+    });
+    if (!res.ok) {
+        if (res.status === 401) window.location.href = "/";
+        throw new Error(`HTTP ${res.status}`);
+    }
+    return res.json();
+}
+
+async function loadProfile() {
+    try {
+        const data = await api("/api/me/profile");
+        document.getElementById("avatar").src = data.avatar_url;
+        document.getElementById("username").textContent = data.username;
+
+        const stats = [
+            { label: "Total AP", value: formatNum(data.total_ap) },
+            { label: "Best AP", value: formatNum(data.best_ap) },
+            { label: "Games", value: formatNum(data.games) },
+            { label: "Goals done", value: formatNum(data.goals_done) },
+        ];
+        const grid = document.getElementById("statsGrid");
+        grid.innerHTML = stats.map(s => `
+            <div class="stat-card">
+                <span class="stat-label">${s.label}</span>
+                <span class="stat-value">${s.value}</span>
+            </div>
+        `).join("");
+
+        const sc = data.source_counts || {};
+        document.getElementById("mcsu-count").textContent = sc.mcsu || 0;
+        document.getElementById("api-count").textContent = sc.api || 0;
+        document.getElementById("sourceRow").style.display = "flex";
+
+        document.getElementById("goalInput").value = data.daily_goal || 0;
+        dailyGoal = data.daily_goal || 0;
+        updateGoalStatus(dailyGoal);
+        document.getElementById("goalCard").style.display = "block";
+        initDaily();
+
+        const gradesRow = document.getElementById("gradesRow");
+        gradesRow.innerHTML = GRADE_ORDER.map(g => `
+            <div class="grade-badge" style="border-color:${GRADE_COLORS[g]}">
+                <span class="gl" style="color:${GRADE_COLORS[g]}">${g}</span>
+                <span class="gc">${data.grades[g] || 0}</span>
+            </div>
+        `).join("");
+        document.getElementById("gradesCard").style.display = "block";
+
+        const tbody = document.getElementById("topBody");
+        const empty = document.getElementById("topEmpty");
+        if (!data.top_scores || data.top_scores.length === 0) {
+            tbody.innerHTML = "";
+            empty.style.display = "block";
+        } else {
+            empty.style.display = "none";
+            tbody.innerHTML = data.top_scores.map(s => `
+                <tr>
+                    <td class="title" title="${s.beatmap_title}">${truncateTitle(s.beatmap_title)}</td>
+                    <td>${(s.accuracy * 100).toFixed(2)}%</td>
+                    <td class="grade" style="color:${GRADE_COLORS[s.grade] || '#fff'}">${s.grade}</td>
+                    <td>${s.mods || 'NM'}</td>
+                    <td>x${s.max_combo}</td>
+                    <td class="pp">${s.pp ? s.pp.toFixed(1) : '-'}</td>
+                    <td class="ap">${Math.floor(s.ap)} AP</td>
+                </tr>
+            `).join("");
+        }
+    } catch (e) {
+        document.getElementById("username").textContent = "Error loading profile";
+    }
+}
+
+function updateGoalStatus(goal) {
+    const el = document.getElementById("goalStatus");
+    el.textContent = goal > 0 ? `Target: ${goal} AP/day` : "No goal set";
+    el.className = "goal-status" + (goal > 0 ? " set" : "");
+}
+
+function initDaily() {
+    document.getElementById("dailyCard").style.display = "block";
+    const today = new Date().toISOString().slice(0, 10);
+    document.getElementById("dailyDate").value = today;
+    loadDaily(today);
+}
+
+async function loadDaily(initialDate) {
+    try {
+        dailyData = await api("/api/me/daily");
+    } catch (e) {
+        return;
+    }
+    renderDailyChart();
+    loadDailyScores(initialDate);
+}
+
+function renderDailyChart() {
+    const canvas = document.getElementById("dailyChart");
+    if (dailyData.length === 0) {
+        if (dailyChart) {
+            dailyChart.destroy();
+            dailyChart = null;
+        }
+        canvas.style.display = "none";
+        return;
+    }
+    canvas.style.display = "block";
+
+    const asc = [...dailyData].reverse();
+    const labels = asc.map(d => d.date);
+    const values = asc.map(d => d.total_ap);
+    const byDate = {};
+    dailyData.forEach(d => { byDate[d.date] = d; });
+
+    const colors = asc.map(d =>
+        (dailyGoal > 0 && d.total_ap >= dailyGoal) ? "#ffaa00" : "#4A9BE8"
+    );
+
+    const config = {
+        type: "bar",
+        data: {
+            labels: labels,
+            datasets: [{
+                data: values,
+                backgroundColor: colors,
+                borderRadius: 5,
+                maxBarThickness: 34,
+            }],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: "rgba(17, 24, 40, 0.95)",
+                    borderColor: "rgba(255,255,255,0.12)",
+                    borderWidth: 1,
+                    titleColor: "#e6edf5",
+                    bodyColor: "#8b9cb4",
+                    callbacks: {
+                        title: (items) => items[0].label,
+                        label: (item) => {
+                            const d = byDate[item.label];
+                            const lines = [
+                                `AP: ${item.parsed.y.toLocaleString("ru-RU")}`,
+                                `Maps: ${d ? d.scores_count : 0}`,
+                            ];
+                            if (d) lines.push(`Best: ${d.best_score_ap} AP`);
+                            return lines;
+                        },
+                    },
+                },
+            },
+            scales: {
+                x: {
+                    ticks: {
+                        color: "#8b9cb4",
+                        font: { family: "JetBrains Mono", size: 10 },
+                        maxRotation: 0,
+                    },
+                    grid: { display: false },
+                    border: { color: "rgba(255,255,255,0.1)" },
+                },
+                y: {
+                    ticks: { color: "#8b9cb4", font: { family: "JetBrains Mono", size: 10 } },
+                    grid: { color: "rgba(255,255,255,0.05)" },
+                    border: { display: false },
+                    beginAtZero: true,
+                },
+            },
+            onClick: (event, elements, chart) => {
+                if (!elements.length) return;
+                const day = chart.data.labels[elements[0].index];
+                document.getElementById("dailyDate").value = day;
+                loadDailyScores(day);
+            },
+        },
+    };
+
+    if (dailyChart) {
+        dailyChart.data = config.data;
+        dailyChart.options = config.options;
+        dailyChart.update();
+    } else {
+        dailyChart = new Chart(canvas, config);
+    }
+}
+
+async function loadDailyScores(date) {
+    const summary = document.getElementById("dailySummary");
+    const goalEl = document.getElementById("dailyGoalStatus");
+    const tableWrap = document.getElementById("dailyTableWrap");
+    const gradesWrap = document.getElementById("dailyGrades");
+    const empty = document.getElementById("dailyEmpty");
+    let scores = [];
+    try {
+        scores = await api(`/api/me/scores?date=${encodeURIComponent(date)}`);
+    } catch (e) {
+        scores = [];
+    }
+
+    if (scores.length === 0) {
+        tableWrap.style.display = "none";
+        gradesWrap.style.display = "none";
+        empty.style.display = "block";
+        summary.textContent = "";
+        goalEl.textContent = "";
+        return;
+    }
+
+    empty.style.display = "none";
+    tableWrap.style.display = "block";
+
+    const total = scores.reduce((sum, s) => sum + s.ap, 0);
+    const best = Math.max(...scores.map(s => s.ap));
+    summary.textContent = `Sum AP: ${Math.floor(total)} · Maps: ${scores.length} · Best: ${Math.floor(best)} AP`;
+
+    if (dailyGoal > 0) {
+        goalEl.textContent = `${Math.floor(total)} / ${dailyGoal} AP` + (total >= dailyGoal ? " 🔥" : "");
+        goalEl.className = "daily-goal-status" + (total >= dailyGoal ? " done" : "");
+    } else {
+        goalEl.textContent = "";
+    }
+
+    const counts = {};
+    scores.forEach(s => {
+        const g = (s.grade || "").toUpperCase();
+        counts[g] = (counts[g] || 0) + 1;
+    });
+    const gradeKeys = GRADE_ORDER.filter(g => counts[g]);
+    if (gradeKeys.length) {
+        gradesWrap.style.display = "flex";
+        gradesWrap.innerHTML = gradeKeys.map(g => `
+            <div class="grade-badge small">
+                <span class="gl" style="color:${GRADE_COLORS[g]}">${g}</span>
+                <span class="gc">${counts[g]}</span>
+            </div>
+        `).join("");
+    } else {
+        gradesWrap.style.display = "none";
+    }
+
+    document.getElementById("dailyBody").innerHTML = scores.map(s => `
+        <tr>
+            <td class="title" title="${s.beatmap_title}">${truncateTitle(s.beatmap_title)}</td>
+            <td>${(s.accuracy * 100).toFixed(2)}%</td>
+            <td class="grade" style="color:${GRADE_COLORS[s.grade] || "#fff"}">${s.grade}</td>
+            <td>${s.mods || 'NM'}</td>
+            <td>x${s.max_combo}</td>
+            <td class="pp">${s.pp ? s.pp.toFixed(1) : '-'}</td>
+            <td class="ap">${Math.floor(s.ap)} AP</td>
+            <td><span class="source-mini ${s.source === 'api' ? 'src-api' : 'src-mcsu'}">${s.source === 'api' ? 'osu! API' : 'McOsu'}</span></td>
+        </tr>
+    `).join("");
+}
+
+document.getElementById("copyTokenBtn").addEventListener("click", () => {
+    navigator.clipboard.writeText(TOKEN).then(() => {
+        const hint = document.getElementById("tokenHint");
+        hint.style.display = "block";
+        document.getElementById("copyTokenBtn").textContent = "Copied!";
+        setTimeout(() => {
+            document.getElementById("copyTokenBtn").textContent = "Copy token";
+        }, 2000);
+    });
+});
+
+document.getElementById("goalSetBtn").addEventListener("click", async () => {
+    const val = parseInt(document.getElementById("goalInput").value) || 0;
+    try {
+        await api("/api/me/goal", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ goal: val })
+        });
+        updateGoalStatus(val);
+        dailyGoal = val;
+        if (dailyData.length) renderDailyChart();
+        loadDailyScores(document.getElementById("dailyDate").value);
+    } catch (e) {
+        document.getElementById("goalStatus").textContent = "Failed to save goal";
+    }
+});
+
+document.getElementById("dailyDate").addEventListener("change", (e) => {
+    if (e.target.value) loadDailyScores(e.target.value);
+});
+
+document.getElementById("goalInput").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") document.getElementById("goalSetBtn").click();
+});
+
+loadProfile();
+</script>
+{% endblock %}

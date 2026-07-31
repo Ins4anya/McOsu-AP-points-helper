@@ -123,6 +123,12 @@ class Database:
         )
         return cur.fetchall()
 
+    def get_all_scores(self) -> list[sqlite3.Row]:
+        cur = self.conn.execute(
+            "SELECT * FROM scores ORDER BY timestamp ASC"
+        )
+        return cur.fetchall()
+
     @staticmethod
     def _mods_to_string(mods: int) -> str:
         if mods == 0:

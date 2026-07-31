@@ -1,5 +1,16 @@
 import customtkinter as ctk
+import threading
+import webbrowser
+from pathlib import Path
 
+from mcsu_bot.server_client import (
+    check_auth,
+    get_server_url,
+    get_saved_token,
+    open_login,
+    parse_login_link,
+    save_server_token,
+)
 from mcsu_bot_gui.workers.process_worker import ProcessWorker, free_port
 
 
@@ -25,6 +36,7 @@ class ControlTab(ctk.CTkFrame):
                      text_color="#ccc").pack(anchor="w", pady=(0, 12))
 
         self._build_source_selector()
+        self._build_server_section()
         self._build_bot_section()
         self._build_web_section()
         self._build_console()
@@ -66,6 +78,147 @@ class ControlTab(ctk.CTkFrame):
 
         if self.source_var.get() != "api":
             self.username_entry.configure(state="disabled")
+
+    def _build_server_section(self):
+        card = ctk.CTkFrame(self, fg_color="#1a1a2e", border_color="#2a2a3e", border_width=1)
+        card.pack(fill="x", pady=(0, 16))
+
+        ctk.CTkLabel(card, text="Server Sync", font=ctk.CTkFont(size=14, weight="bold"),
+                     text_color="#ccc").pack(anchor="w", padx=16, pady=(8, 4))
+
+        url_row = ctk.CTkFrame(card, fg_color="transparent")
+        url_row.pack(fill="x", padx=16, pady=(0, 8))
+
+        ctk.CTkLabel(url_row, text="Server URL:", font=ctk.CTkFont(size=13),
+                     text_color="#888").pack(side="left")
+
+        saved_url = get_server_url()
+        self.server_url_var = ctk.StringVar(value=saved_url)
+        self.server_url_entry = ctk.CTkEntry(url_row, textvariable=self.server_url_var,
+                                              font=ctk.CTkFont(size=13), width=250,
+                                              fg_color="#0f0f1a", border_color="#2a2a3e",
+                                              placeholder_text="https://ins4anya.fun")
+        self.server_url_entry.pack(side="left", padx=(8, 8), fill="x", expand=True)
+
+        self.login_btn = ctk.CTkButton(url_row, text="Login via osu!",
+                                        command=self._on_server_login,
+                                        fg_color="#ff66aa", hover_color="#ff4d9a",
+                                        text_color="#fff",
+                                        font=ctk.CTkFont(size=12))
+        self.login_btn.pack(side="right")
+
+        token_row = ctk.CTkFrame(card, fg_color="transparent")
+        token_row.pack(fill="x", padx=16, pady=(0, 8))
+
+        ctk.CTkLabel(token_row, text="Token / link:", font=ctk.CTkFont(size=13),
+                     text_color="#888").pack(side="left")
+
+        self.token_var = ctk.StringVar(value=get_saved_token())
+        self.token_entry = ctk.CTkEntry(token_row, textvariable=self.token_var,
+                                        font=ctk.CTkFont(size=13), width=250,
+                                        fg_color="#0f0f1a", border_color="#2a2a3e",
+                                        placeholder_text="https://ap.ins4anya.fun/profile?token=... or token")
+        self.token_entry.pack(side="left", padx=(8, 8), fill="x", expand=True)
+
+        self.save_token_btn = ctk.CTkButton(token_row, text="Save",
+                                            command=self._on_save_token,
+                                            fg_color="#2a2a3e", hover_color="#3a3a5e",
+                                            text_color="#aaa",
+                                            font=ctk.CTkFont(size=12), width=60)
+        self.save_token_btn.pack(side="right")
+
+        ctk.CTkLabel(card, text="Paste the address from your browser after login, or just the token",
+                     font=ctk.CTkFont(size=11), text_color="#555").pack(anchor="w", padx=16, pady=(0, 8))
+
+        status_row = ctk.CTkFrame(card, fg_color="transparent")
+        status_row.pack(fill="x", padx=16, pady=(0, 8))
+
+        self.server_status = ctk.CTkLabel(status_row, text="● Not connected",
+                                           text_color="#666", font=ctk.CTkFont(size=12))
+        self.server_status.pack(side="left")
+
+        self.sync_all_btn = ctk.CTkButton(status_row, text="Sync Local Scores",
+                                           command=self._on_sync_all,
+                                           fg_color="#2a2a3e", hover_color="#3a3a5e",
+                                           text_color="#aaa", font=ctk.CTkFont(size=11),
+                                           state="disabled")
+        self.sync_all_btn.pack(side="right")
+
+        self._update_server_status()
+
+    def _on_server_login(self):
+        server_url = self.server_url_var.get().strip()
+        if not server_url:
+            self._on_output("Enter server URL first")
+            return
+        webbrowser.open(f"{server_url.rstrip('/')}/auth/login")
+
+    def _on_save_token(self):
+        text = self.token_var.get().strip()
+        if not text:
+            self._on_output("Paste the profile link or token first")
+            return
+        server_url, token = parse_login_link(text)
+        if not token:
+            self._on_output("Could not parse token — paste the link or the JWT token")
+            return
+        if not server_url:
+            server_url = self.server_url_var.get().strip()
+        if not server_url:
+            self._on_output("Could not detect server URL — fill the Server URL field")
+            return
+        self.server_url_var.set(server_url)
+        save_server_token(server_url, token)
+        self._on_output(f"Saved token for {server_url}")
+        self._update_server_status()
+
+    def _on_sync_all(self):
+        server_url = self.server_url_var.get().strip()
+        if not server_url or not check_auth(server_url):
+            self._on_output("Not connected — save the token first")
+            return
+        self.sync_all_btn.configure(state="disabled", text="Syncing...")
+        self._on_output("Starting full sync...")
+        ap_db_path = self.config.ap_db_path or (
+            Path(__file__).resolve().parent.parent.parent / "scores_ap.db"
+        )
+        source = self.source_var.get()
+
+        def _progress(i, total):
+            if i % 20 == 0 or i == total:
+                self.after(0, lambda: self._on_output(f"Syncing... {i}/{total}"))
+
+        def _run():
+            from mcsu_bot.server_client import sync_all_scores
+
+            synced, duplicate, failed, errors = sync_all_scores(
+                server_url, ap_db_path, source, on_progress=_progress
+            )
+            self.after(
+                0,
+                lambda: self._sync_all_done(synced, duplicate, failed, errors),
+            )
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _sync_all_done(self, synced, duplicate, failed, errors):
+        self.sync_all_btn.configure(state="normal", text="Sync Local Scores")
+        self._on_output(
+            f"Sync finished: {synced} synced, {duplicate} already on server, {failed} failed"
+        )
+        for err in errors[:10]:
+            self._on_output(f"  ! {err}")
+        if len(errors) > 10:
+            self._on_output(f"  ... and {len(errors) - 10} more errors")
+
+    def _update_server_status(self):
+        url = self.server_url_var.get().strip()
+        if url and check_auth(url):
+            self.server_status.configure(text="● Connected", text_color="#66ff99")
+            self.sync_all_btn.configure(state="normal")
+        else:
+            self.server_status.configure(text="● Not connected", text_color="#666")
+            self.sync_all_btn.configure(state="disabled")
 
     def _build_bot_section(self):
         card = ctk.CTkFrame(self, fg_color="#1a1a2e", border_color="#2a2a3e", border_width=1)

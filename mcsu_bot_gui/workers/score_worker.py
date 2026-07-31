@@ -233,26 +233,68 @@ class OsuApiScoreFetcher(threading.Thread):
 
 
 class AutoScanWorker(threading.Thread):
-    def __init__(self, scores_db_path, config, on_new_score, last_timestamp=None, poll_interval=3.0):
+    def __init__(self, poll_fn, on_new_score, last_marker=None, poll_interval=3.0):
         super().__init__(daemon=True)
-        self.scores_db_path = Path(scores_db_path)
-        self.config = config
+        self.poll_fn = poll_fn
         self.on_new_score = on_new_score
-        self.last_timestamp = last_timestamp
+        self.last_marker = last_marker
         self.poll_interval = poll_interval
         self._stop_event = threading.Event()
 
     def run(self):
         while not self._stop_event.wait(self.poll_interval):
             try:
-                latest = _get_latest_score(self.config)
+                marker = self.poll_fn()
             except Exception:
                 continue
-            if self.last_timestamp is not None and latest.timestamp > self.last_timestamp:
-                self.last_timestamp = latest.timestamp
+            if marker is None:
+                continue
+            if self.last_marker is not None and marker != self.last_marker:
+                self.last_marker = marker
                 self.on_new_score()
-            elif self.last_timestamp is None:
-                self.last_timestamp = latest.timestamp
+            elif self.last_marker is None:
+                self.last_marker = marker
 
     def stop(self):
         self._stop_event.set()
+
+
+class OsuApiAutoScanWorker(AutoScanWorker):
+    def __init__(self, config, username, on_new_score, poll_interval=3.0):
+        self.config = config
+        self.username = username
+        self._api = None
+        self._loop = None
+        super().__init__(
+            poll_fn=self._poll,
+            on_new_score=on_new_score,
+            poll_interval=poll_interval,
+        )
+
+    def _poll(self):
+        if self._loop is None or self._loop.is_closed():
+            self._loop = asyncio.new_event_loop()
+        if self._api is None:
+            self._api = OsuAPI(
+                self.config.osu_client_id,
+                self.config.osu_client_secret,
+                self.config.osu_cache_dir,
+                self.config.songs_dir,
+            )
+        return self._loop.run_until_complete(self._fetch_latest_id())
+
+    async def _fetch_latest_id(self):
+        scores = await self._api.get_recent_scores(self.username)
+        if not scores:
+            return None
+        return scores[0].get("id")
+
+    def stop(self):
+        if self._loop is not None and not self._loop.is_closed():
+            try:
+                if self._api is not None:
+                    self._loop.run_until_complete(self._api.close())
+            except Exception:
+                pass
+            self._loop.close()
+        super().stop()
