@@ -90,11 +90,11 @@ class APBreakdownTab(ctk.CTkFrame):
         self._grids.append(grid)
 
         tiles = {}
-        cols = max(len(definitions), 1)
         for i, (label, default, color) in enumerate(definitions):
             tile = GlassTile(grid, label, default, value_color=color)
             tile.grid(row=0, column=i, padx=(0 if i == 0 else 6, 0), sticky="nsew")
             grid.grid_columnconfigure(i, weight=1, uniform="tile")
+            tiles[label] = tile
         return tiles
 
     def _clear_tiles(self):
