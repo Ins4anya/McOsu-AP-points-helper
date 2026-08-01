@@ -171,9 +171,9 @@ class APBreakdownTab(ctk.CTkFrame):
         self._show_all()
 
     def _set_verdict(self, bd):
-        if bd.aim_ratio >= 1.6:
+        if bd.aim_ratio >= 1.15:
             vtype, color = "Aim-focused map", "#66bbff"
-        elif bd.aim_ratio <= 0.65:
+        elif bd.aim_ratio <= 0.85:
             vtype, color = "Speed / stream-focused map", "#ff69b4"
         elif bd.density >= 6:
             vtype, color = "Dense map", "#ffaa44"
