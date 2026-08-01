@@ -393,6 +393,12 @@ td.grade { font-weight: 700; }
 
 /* ---------- Players list ---------- */
 
+#players {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 0 2rem 4rem;
+}
+
 #players .table-wrap { margin-top: 1.2rem; }
 
 .col-num { text-align: right; white-space: nowrap; }
