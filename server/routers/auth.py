@@ -6,12 +6,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.auth import (
+    clear_token_cookie,
     create_jwt,
     exchange_code,
     fetch_osu_user,
     get_authorize_url,
     get_current_user,
     refresh_osu_token,
+    set_token_cookie,
 )
 from server.config import ServerConfig
 from server.database import User, get_session
@@ -57,8 +59,22 @@ async def callback(
     await session.refresh(user)
 
     jwt_token = create_jwt(config, user.id)
-    redirect_url = f"{config.site_url}/profile?token={jwt_token}"
-    return RedirectResponse(redirect_url)
+    redirect_url = f"{config.site_url}/profile"
+    response = RedirectResponse(redirect_url)
+    set_token_cookie(
+        response,
+        jwt_token,
+        secure=config.site_url.startswith("https://"),
+        max_age=config.jwt_expire_minutes * 60,
+    )
+    return response
+
+
+@router.get("/logout")
+async def logout():
+    response = RedirectResponse(url="/")
+    clear_token_cookie(response)
+    return response
 
 
 @router.post("/refresh-token")

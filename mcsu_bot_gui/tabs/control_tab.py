@@ -117,7 +117,7 @@ class ControlTab(ctk.CTkFrame):
         self.token_entry = ctk.CTkEntry(token_row, textvariable=self.token_var,
                                         font=ctk.CTkFont(size=13), width=250,
                                         fg_color="#0f0f1a", border_color="#2a2a3e",
-                                        placeholder_text="https://ap.ins4anya.fun/profile?token=... or token")
+                                        placeholder_text="Paste the token from your profile page")
         self.token_entry.pack(side="left", padx=(8, 8), fill="x", expand=True)
 
         self.save_token_btn = ctk.CTkButton(token_row, text="Save",
@@ -127,7 +127,7 @@ class ControlTab(ctk.CTkFrame):
                                             font=ctk.CTkFont(size=12), width=60)
         self.save_token_btn.pack(side="right")
 
-        ctk.CTkLabel(card, text="Paste the address from your browser after login, or just the token",
+        ctk.CTkLabel(card, text="After login, click \u201cCopy token\u201d on your profile page and paste it here",
                      font=ctk.CTkFont(size=11), text_color="#555").pack(anchor="w", padx=16, pady=(0, 8))
 
         status_row = ctk.CTkFrame(card, fg_color="transparent")

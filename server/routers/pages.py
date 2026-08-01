@@ -5,9 +5,13 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
 
-from server.auth import decode_jwt, get_current_user
+from server.auth import TOKEN_COOKIE_NAME, decode_jwt, get_current_user
 from server.config import ServerConfig
 from server.database import User
+
+
+def _resolve_token(request: Request, query_token: str = "") -> str:
+    return request.cookies.get(TOKEN_COOKIE_NAME) or query_token
 
 router = APIRouter(tags=["pages"])
 templates = Jinja2Templates(directory=Path(__file__).parent.parent / "templates")
@@ -19,6 +23,7 @@ async def index(
     token: str = Query(""),
     config: ServerConfig = Depends(ServerConfig.from_env),
 ):
+    token = _resolve_token(request, token)
     user_id = decode_jwt(config, token) if token else None
     return templates.TemplateResponse(
         request,
@@ -37,6 +42,7 @@ async def profile_page(
     token: str = Query(""),
     config: ServerConfig = Depends(ServerConfig.from_env),
 ):
+    token = _resolve_token(request, token)
     user_id = decode_jwt(config, token) if token else None
     return templates.TemplateResponse(
         request,

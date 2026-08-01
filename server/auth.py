@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 from jose import JWTError, jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +13,8 @@ from server.config import ServerConfig
 from server.database import User, get_session
 
 security = HTTPBearer(auto_error=False)
+
+TOKEN_COOKIE_NAME = "mcsu_token"
 
 OSU_TOKEN_URL = "https://osu.ppy.sh/oauth/token"
 OSU_ME_URL = "https://osu.ppy.sh/api/v2/me"
@@ -82,16 +84,43 @@ def decode_jwt(config: ServerConfig, token: str) -> int | None:
         return None
 
 
+def set_token_cookie(
+    response,
+    token: str,
+    secure: bool = False,
+    max_age: int = 60 * 60 * 24 * 30,
+):
+    response.set_cookie(
+        key=TOKEN_COOKIE_NAME,
+        value=token,
+        max_age=max_age,
+        path="/",
+        httponly=True,
+        samesite="lax",
+        secure=secure,
+    )
+
+
+def clear_token_cookie(response):
+    response.delete_cookie(TOKEN_COOKIE_NAME, path="/")
+
+
 async def get_current_user(
+    request: Request,
     config: ServerConfig = Depends(ServerConfig.from_env),
     session: AsyncSession = Depends(get_session),
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
 ) -> User:
-    if credentials is None:
+    token = None
+    if credentials is not None:
+        token = credentials.credentials
+    else:
+        token = request.cookies.get(TOKEN_COOKIE_NAME)
+    if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
         )
-    user_id = decode_jwt(config, credentials.credentials)
+    user_id = decode_jwt(config, token)
     if user_id is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"

@@ -6,7 +6,7 @@
     <h1>McOsu <span class="accent">AP</span> Tracker</h1>
     <p class="hero-sub">Track your Activity Points from McOsu and osu! lazer.<br>Play, sync, and watch your stats grow day by day.</p>
     {% if logged_in %}
-    <a href="/profile?token={{ token }}" class="btn">Go to Profile</a>
+    <a href="/profile" class="btn">Go to Profile</a>
     {% else %}
     <a href="/auth/login" class="btn">Login with osu!</a>
     {% endif %}
