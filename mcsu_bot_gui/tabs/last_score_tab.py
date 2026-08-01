@@ -13,6 +13,7 @@ from mcsu_bot_gui.workers.score_worker import (
     OsuApiAutoScanWorker,
 )
 from mcsu_bot.profile import calculate_profile
+from mcsu_bot_gui.widgets import GlassTile, GLASS_BG, GLASS_BORDER, TILE_BG, ACCENT
 
 
 GRADE_COLORS = {
@@ -22,29 +23,6 @@ GRADE_COLORS = {
     "C": "#ff4500", "D": "#ff0000",
 }
 GRADE_ORDER = ["XH", "X", "SH", "S", "A", "B", "C", "D"]
-
-GLASS_BG = "#16162a"
-GLASS_BORDER = "#2d2d48"
-TILE_BG = "#1e1e38"
-TILE_BORDER = "#33335a"
-ACCENT = "#4A9BE8"
-
-
-class GlassTile(ctk.CTkFrame):
-    def __init__(self, master, label_text, value_text="—", value_color="#e0e0e0", **kwargs):
-        super().__init__(master, fg_color=TILE_BG, border_color=TILE_BORDER,
-                         border_width=1, corner_radius=10, **kwargs)
-        self._label = ctk.CTkLabel(self, text=label_text, font=ctk.CTkFont(size=10),
-                                    text_color="#888")
-        self._label.pack(anchor="w", padx=12, pady=(10, 0))
-        self._value = ctk.CTkLabel(self, text=value_text, font=ctk.CTkFont(size=20, weight="bold"),
-                                    text_color=value_color)
-        self._value.pack(anchor="w", padx=12, pady=(0, 10))
-
-    def set_value(self, text: str, color: str = None):
-        self._value.configure(text=text)
-        if color:
-            self._value.configure(text_color=color)
 
 
 class LastScoreTab(ctk.CTkFrame):

@@ -7,11 +7,11 @@ SCALE = 0.1
 
 DENSITY_THRESHOLD = 2.0
 DENSITY_STEP = 0.04
-DENSITY_CAP = 0.30
+DENSITY_CAP = 0.15
 
 AIM_RATIO_THRESHOLD = 1.0
 AIM_STEP = 0.08
-AIM_CAP = 0.15
+AIM_CAP = 0.30
 
 MISS_PENALTY_FACTOR = 0.3
 
@@ -40,6 +40,7 @@ class APBreakdown:
     acc_mult: float
     combo_ratio: float
     miss_penalty: float
+    count_miss: int
     density: float
     density_bonus: float
     stars_aim: float
@@ -133,7 +134,7 @@ def explain_ap(score: OsuScore, meta: BeatmapMeta, accuracy: float,
         return APBreakdown(
             total_hits=0, star_rating=0, base_value=0,
             accuracy=0, acc_mult=0, combo_ratio=0,
-            miss_penalty=0, density=0, density_bonus=0,
+            miss_penalty=0, count_miss=0, density=0, density_bonus=0,
             stars_aim=0, stars_speed=0, aim_ratio=0, aim_bonus=0,
             mod_mult=0, mods_str="", grade="D", rank_bonus=0, ap=0,
         )
@@ -171,6 +172,7 @@ def explain_ap(score: OsuScore, meta: BeatmapMeta, accuracy: float,
         acc_mult=acc_mult,
         combo_ratio=combo_ratio,
         miss_penalty=miss_penalty,
+        count_miss=score.count_miss,
         density=density,
         density_bonus=density_bonus,
         stars_aim=stars_aim,
