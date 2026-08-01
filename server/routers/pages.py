@@ -56,14 +56,20 @@ async def profile_page(
 
 
 @router.get("/players", response_class=HTMLResponse)
-async def players_page(request: Request):
+async def players_page(
+    request: Request,
+    token: str = Query(""),
+    config: ServerConfig = Depends(ServerConfig.from_env),
+):
+    token = _resolve_token(request, token)
+    user_id = decode_jwt(config, token) if token else None
     return templates.TemplateResponse(
         request,
         "players.html",
         {
             "request": request,
-            "token": "",
-            "logged_in": False,
+            "token": token,
+            "logged_in": user_id is not None,
         },
     )
 
@@ -72,14 +78,18 @@ async def players_page(request: Request):
 async def public_profile_page(
     request: Request,
     osu_id: int,
+    token: str = Query(""),
+    config: ServerConfig = Depends(ServerConfig.from_env),
 ):
+    token = _resolve_token(request, token)
+    user_id = decode_jwt(config, token) if token else None
     return templates.TemplateResponse(
         request,
         "profile.html",
         {
             "request": request,
-            "token": "",
-            "logged_in": False,
+            "token": token,
+            "logged_in": user_id is not None,
             "viewing_other": True,
             "osu_id": osu_id,
         },
