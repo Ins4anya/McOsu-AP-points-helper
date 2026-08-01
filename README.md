@@ -49,6 +49,9 @@ Desktop GUI-приложение, Discord-бот, локальный веб-да
    - `scores_db_path` — путь к `scores.db` от McOsu или osu! stable
    - `songs_dir` — путь к папке `Songs` osu! (для поиска .osu-файлов)
    - `source` — `"mcsu"` или `"osu"` (источник скоров)
+   - `osu_username` — никнейм для источника `osu` (опционально)
+   - `server_url` — URL публичного сервера для синхронизации, например `https://ap.ins4anya.fun` (опционально)
+   - `server_token` — токен авторизации с сервера; если заданы `server_url` и `server_token`, GUI сразу подключится без ручного ввода (опционально)
 
 ### Запуск из исходников
 ```bash

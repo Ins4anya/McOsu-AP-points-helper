@@ -92,7 +92,7 @@ class ControlTab(ctk.CTkFrame):
         ctk.CTkLabel(url_row, text="Server URL:", font=ctk.CTkFont(size=13),
                      text_color="#888").pack(side="left")
 
-        saved_url = get_server_url()
+        saved_url = self.config.server_url or get_server_url()
         self.server_url_var = ctk.StringVar(value=saved_url)
         self.server_url_entry = ctk.CTkEntry(url_row, textvariable=self.server_url_var,
                                               font=ctk.CTkFont(size=13), width=250,
@@ -113,7 +113,8 @@ class ControlTab(ctk.CTkFrame):
         ctk.CTkLabel(token_row, text="Token / link:", font=ctk.CTkFont(size=13),
                      text_color="#888").pack(side="left")
 
-        self.token_var = ctk.StringVar(value=get_saved_token())
+        saved_token = self.config.server_token or get_saved_token()
+        self.token_var = ctk.StringVar(value=saved_token)
         self.token_entry = ctk.CTkEntry(token_row, textvariable=self.token_var,
                                         font=ctk.CTkFont(size=13), width=250,
                                         fg_color="#0f0f1a", border_color="#2a2a3e",
@@ -143,6 +144,9 @@ class ControlTab(ctk.CTkFrame):
                                            text_color="#aaa", font=ctk.CTkFont(size=11),
                                            state="disabled")
         self.sync_all_btn.pack(side="right")
+
+        if self.config.server_url and self.config.server_token:
+            save_server_token(self.config.server_url, self.config.server_token)
 
         self._update_server_status()
 

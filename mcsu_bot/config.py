@@ -17,6 +17,8 @@ class Config:
     command_prefix: str = "!"
     ap_db_path: Optional[Path] = None
     osu_username: str = ""
+    server_url: str = ""
+    server_token: str = ""
 
 
 def load_config(path: str = "config.json") -> Config:
@@ -39,4 +41,6 @@ def load_config(path: str = "config.json") -> Config:
         command_prefix=data.get("command_prefix", "!"),
         ap_db_path=Path(ap_db_path) if ap_db_path else None,
         osu_username=data.get("osu_username", ""),
+        server_url=data.get("server_url", ""),
+        server_token=data.get("server_token", ""),
     )

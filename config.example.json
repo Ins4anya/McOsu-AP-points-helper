@@ -8,5 +8,7 @@
     "ap_db_path": "scores_ap.db",
     "command_prefix": "!",
     "source": "mcsu",
-    "osu_username": ""
+    "osu_username": "",
+    "server_url": "https://ap.ins4anya.fun",
+    "server_token": ""
 }
