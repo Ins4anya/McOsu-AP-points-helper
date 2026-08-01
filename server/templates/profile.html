@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Profile — McOsu AP Tracker{% endblock %}
+{% block title %}{% if viewing_other %}Player — McOsu AP Tracker{% else %}Profile — McOsu AP Tracker{% endif %}{% endblock %}
 {% block content %}
 <div id="profile">
     <div class="profile-banner"></div>
@@ -8,16 +8,22 @@
         <div class="profile-info">
             <h2 id="username">Loading...</h2>
             <div class="profile-actions">
+                {% if viewing_other %}
+                <a href="/players" class="btn btn-sm btn-ghost">← Players</a>
+                {% else %}
                 <button class="btn btn-sm" id="copyTokenBtn">Copy token</button>
                 <a href="/" class="btn btn-sm btn-ghost" id="logoutBtn">Logout</a>
+                {% endif %}
             </div>
         </div>
     </div>
 
+    {% if not viewing_other %}
     <div class="token-hint" id="tokenHint" style="display:none">
         <strong>What is this token?</strong> The token links your desktop app (McOsuTracker) to this server. Open the app,
         paste your Server URL, and use this token to sync your scores automatically.
     </div>
+    {% endif %}
 
     <div class="stats-grid" id="statsGrid">
         <div class="stat-card skeleton"></div>
@@ -31,6 +37,7 @@
         <span class="source-badge source-api">osu! API: <strong id="api-count">0</strong></span>
     </div>
 
+    {% if not viewing_other %}
     <div class="goal-card" id="goalCard" style="display:none">
         <div class="goal-controls">
             <label for="goalInput">🎯 Daily AP goal:</label>
@@ -39,6 +46,7 @@
             <span class="goal-status" id="goalStatus"></span>
         </div>
     </div>
+    {% endif %}
 
     <div class="card" id="gradesCard" style="display:none">
         <h3>Grade Distribution</h3>
@@ -101,6 +109,8 @@
 
 <script>
 const TOKEN = "{{ token }}";
+const VIEWING_OTHER = {{ 'true' if viewing_other else 'false' }};
+const PLAYER_OSU_ID = {{ osu_id if osu_id else 0 }};
 const GRADE_COLORS = {
     'XH': '#ffd700', 'X': '#ffd700', 'SH': '#ff69b4', 'S': '#ff69b4',
     'A': '#00ff7f', 'B': '#1e90ff', 'C': '#ff4500', 'D': '#ff0000',
@@ -120,12 +130,16 @@ function formatNum(n) {
 }
 
 async function api(url, opts = {}) {
-    const res = await fetch(url, {
-        ...opts,
-        headers: { ...(opts.headers || {}), "Authorization": `Bearer ${TOKEN}` }
-    });
+    let fullUrl = url;
+    const headers = { ...(opts.headers || {}) };
+    if (VIEWING_OTHER) {
+        fullUrl = url.replace("/api/me", `/api/players/${PLAYER_OSU_ID}`);
+    } else {
+        headers["Authorization"] = `Bearer ${TOKEN}`;
+    }
+    const res = await fetch(fullUrl, { ...opts, headers });
     if (!res.ok) {
-        if (res.status === 401) window.location.href = "/";
+        if (res.status === 401 && !VIEWING_OTHER) window.location.href = "/";
         throw new Error(`HTTP ${res.status}`);
     }
     return res.json();
@@ -156,10 +170,12 @@ async function loadProfile() {
         document.getElementById("api-count").textContent = sc.api || 0;
         document.getElementById("sourceRow").style.display = "flex";
 
-        document.getElementById("goalInput").value = data.daily_goal || 0;
         dailyGoal = data.daily_goal || 0;
-        updateGoalStatus(dailyGoal);
-        document.getElementById("goalCard").style.display = "block";
+        if (!VIEWING_OTHER) {
+            document.getElementById("goalInput").value = dailyGoal;
+            updateGoalStatus(dailyGoal);
+            document.getElementById("goalCard").style.display = "block";
+        }
         initDaily();
 
         const gradesRow = document.getElementById("gradesRow");
@@ -379,40 +395,49 @@ async function loadDailyScores(date) {
     `).join("");
 }
 
-document.getElementById("copyTokenBtn").addEventListener("click", () => {
-    navigator.clipboard.writeText(TOKEN).then(() => {
-        const hint = document.getElementById("tokenHint");
-        hint.style.display = "block";
-        document.getElementById("copyTokenBtn").textContent = "Copied!";
-        setTimeout(() => {
-            document.getElementById("copyTokenBtn").textContent = "Copy token";
-        }, 2000);
-    });
-});
-
-document.getElementById("goalSetBtn").addEventListener("click", async () => {
-    const val = parseInt(document.getElementById("goalInput").value) || 0;
-    try {
-        await api("/api/me/goal", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ goal: val })
+const copyTokenBtn = document.getElementById("copyTokenBtn");
+if (copyTokenBtn) {
+    copyTokenBtn.addEventListener("click", () => {
+        navigator.clipboard.writeText(TOKEN).then(() => {
+            const hint = document.getElementById("tokenHint");
+            hint.style.display = "block";
+            copyTokenBtn.textContent = "Copied!";
+            setTimeout(() => {
+                copyTokenBtn.textContent = "Copy token";
+            }, 2000);
         });
-        updateGoalStatus(val);
-        dailyGoal = val;
-        if (dailyData.length) renderDailyChart();
-        loadDailyScores(document.getElementById("dailyDate").value);
-    } catch (e) {
-        document.getElementById("goalStatus").textContent = "Failed to save goal";
-    }
-});
+    });
+}
+
+const goalSetBtn = document.getElementById("goalSetBtn");
+if (goalSetBtn) {
+    goalSetBtn.addEventListener("click", async () => {
+        const val = parseInt(document.getElementById("goalInput").value) || 0;
+        try {
+            await api("/api/me/goal", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ goal: val })
+            });
+            updateGoalStatus(val);
+            dailyGoal = val;
+            if (dailyData.length) renderDailyChart();
+            loadDailyScores(document.getElementById("dailyDate").value);
+        } catch (e) {
+            document.getElementById("goalStatus").textContent = "Failed to save goal";
+        }
+    });
+}
+
+const goalInput = document.getElementById("goalInput");
+if (goalInput) {
+    goalInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && goalSetBtn) goalSetBtn.click();
+    });
+}
 
 document.getElementById("dailyDate").addEventListener("change", (e) => {
     if (e.target.value) loadDailyScores(e.target.value);
-});
-
-document.getElementById("goalInput").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") document.getElementById("goalSetBtn").click();
 });
 
 loadProfile();

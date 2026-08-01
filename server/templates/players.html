@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Players — McOsu AP Tracker{% endblock %}
+{% block content %}
+<div class="hero">
+    <div class="hero-badge">Public list · no places · click to view profile</div>
+    <h1>Players</h1>
+    <p class="hero-sub">Everyone who syncs scores, sorted by total AP.<br>No rankings — just open a profile and look.</p>
+</div>
+
+<div id="players">
+    <p class="empty" id="playersEmpty" style="display:none">No players yet.</p>
+    <div class="players-list" id="playersList"></div>
+</div>
+
+<script>
+function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+}
+
+function formatNum(n) {
+    if (typeof n !== 'number') return n;
+    return n.toLocaleString('ru-RU');
+}
+
+async function loadPlayers() {
+    let players = [];
+    try {
+        const res = await fetch("/api/players");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        players = await res.json();
+    } catch (e) {
+        players = [];
+    }
+    const list = document.getElementById("playersList");
+    const empty = document.getElementById("playersEmpty");
+    if (!players.length) {
+        empty.style.display = "block";
+        return;
+    }
+    list.innerHTML = players.map(p => `
+        <a class="player-row" href="/player/${p.osu_id}">
+            <img src="${escapeHtml(p.avatar_url)}" alt="" class="player-avatar"
+                 onerror="this.style.visibility='hidden'">
+            <span class="player-name">${escapeHtml(p.username)}</span>
+            <span class="player-stats">${formatNum(p.games)} games</span>
+            <span class="player-ap">${formatNum(p.total_ap)} AP</span>
+        </a>
+    `).join("");
+}
+
+loadPlayers();
+</script>
+{% endblock %}

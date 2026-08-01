@@ -12,6 +12,158 @@ from server.database import Score, User, get_session
 router = APIRouter(prefix="/api", tags=["api"])
 
 
+async def build_profile(session: AsyncSession, user: User) -> dict:
+    result = await session.execute(
+        select(func.sum(Score.ap)).where(Score.user_id == user.id)
+    )
+    total_ap = result.scalar() or 0.0
+
+    result = await session.execute(
+        select(func.count(Score.id)).where(Score.user_id == user.id)
+    )
+    total_scores = result.scalar() or 0
+
+    result = await session.execute(
+        select(Score.played_at, Score.ap).where(Score.user_id == user.id)
+    )
+    daily_ap: dict[str, float] = {}
+    for played_at, ap in result.all():
+        day = played_at.date().isoformat() if played_at else "unknown"
+        daily_ap[day] = daily_ap.get(day, 0.0) + (ap or 0.0)
+    best_ap = max(daily_ap.values(), default=0.0)
+
+    goal = user.daily_goal or 0
+    goals_done = sum(1 for v in daily_ap.values() if v >= goal) if goal > 0 else 0
+
+    result = await session.execute(
+        select(Score.source, func.count(Score.id))
+        .where(Score.user_id == user.id)
+        .group_by(Score.source)
+    )
+    source_counts = {"mcsu": 0, "api": 0}
+    for source, count in result.all():
+        source_counts[str(source)] = count
+
+    result = await session.execute(
+        select(Score.rank, func.count(Score.id))
+        .where(Score.user_id == user.id)
+        .group_by(Score.rank)
+    )
+    grades = {"XH": 0, "X": 0, "SH": 0, "S": 0, "A": 0, "B": 0, "C": 0, "D": 0}
+    for rank, count in result.all():
+        g = str(rank).strip().upper()
+        if g in grades:
+            grades[g] = count
+
+    result = await session.execute(
+        select(Score)
+        .where(Score.user_id == user.id)
+        .order_by(Score.ap.desc())
+        .limit(5)
+    )
+    top_scores = [
+        {
+            "beatmap_title": s.beatmap_title,
+            "accuracy": s.accuracy,
+            "grade": s.rank,
+            "mods": s.mods,
+            "max_combo": s.max_combo,
+            "pp": s.pp,
+            "ap": s.ap,
+            "source": s.source,
+            "played_at": s.played_at.isoformat() if s.played_at else None,
+        }
+        for s in result.scalars().all()
+    ]
+
+    return {
+        "osu_id": user.osu_id,
+        "username": user.username,
+        "avatar_url": user.avatar_url,
+        "total_ap": round(total_ap, 2),
+        "best_ap": round(best_ap, 2),
+        "games": total_scores,
+        "daily_goal": goal,
+        "goals_done": goals_done,
+        "source_counts": source_counts,
+        "grades": grades,
+        "top_scores": top_scores,
+    }
+
+
+async def list_scores(
+    session: AsyncSession,
+    user_id: int,
+    limit: int = 50,
+    offset: int = 0,
+    date: str | None = None,
+) -> list[dict]:
+    result = await session.execute(
+        select(Score).where(Score.user_id == user_id)
+    )
+    scores = result.scalars().all()
+
+    if date:
+        scores = [s for s in scores if (s.played_at or datetime.min).date().isoformat() == date]
+        scores.sort(key=lambda s: s.ap, reverse=True)
+    else:
+        scores.sort(key=lambda s: s.played_at or datetime.min, reverse=True)
+        scores = scores[offset:offset + limit]
+
+    return [
+        {
+            "id": s.id,
+            "beatmap_id": s.beatmap_id,
+            "beatmap_title": s.beatmap_title,
+            "beatmap_url": s.beatmap_url,
+            "mods": s.mods,
+            "source": s.source,
+            "accuracy": s.accuracy,
+            "max_combo": s.max_combo,
+            "pp": s.pp,
+            "ap": s.ap,
+            "grade": s.rank,
+            "rank": s.rank,
+            "stars": s.stars,
+            "played_at": s.played_at.isoformat() if s.played_at else None,
+        }
+        for s in scores
+    ]
+
+
+async def daily_rows(session: AsyncSession, user_id: int) -> list[dict]:
+    result = await session.execute(
+        select(Score.played_at, Score.ap).where(Score.user_id == user_id)
+    )
+    daily: dict[str, list[float]] = {}
+    for played_at, ap in result.all():
+        day = played_at.date().isoformat() if played_at else "unknown"
+        daily.setdefault(day, []).append(ap or 0.0)
+
+    rows = []
+    for day, values in daily.items():
+        rows.append(
+            {
+                "date": day,
+                "total_ap": round(sum(values), 2),
+                "scores_count": len(values),
+                "best_score_ap": round(max(values), 2),
+            }
+        )
+    rows.sort(key=lambda r: r["date"], reverse=True)
+    return rows
+
+
+async def get_user_by_osu_id(
+    session: AsyncSession, osu_id: int
+) -> User:
+    result = await session.execute(select(User).where(User.osu_id == osu_id))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=404, detail="Player not found")
+    return user
+
+
 @router.post("/scores")
 async def submit_score(
     score_data: dict,
@@ -94,82 +246,7 @@ async def get_profile(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    result = await session.execute(
-        select(func.sum(Score.ap)).where(Score.user_id == current_user.id)
-    )
-    total_ap = result.scalar() or 0.0
-
-    result = await session.execute(
-        select(func.count(Score.id)).where(Score.user_id == current_user.id)
-    )
-    total_scores = result.scalar() or 0
-
-    result = await session.execute(
-        select(Score.played_at, Score.ap).where(Score.user_id == current_user.id)
-    )
-    daily_ap: dict[str, float] = {}
-    for played_at, ap in result.all():
-        day = played_at.date().isoformat() if played_at else "unknown"
-        daily_ap[day] = daily_ap.get(day, 0.0) + (ap or 0.0)
-    best_ap = max(daily_ap.values(), default=0.0)
-
-    goal = current_user.daily_goal or 0
-    goals_done = sum(1 for v in daily_ap.values() if v >= goal) if goal > 0 else 0
-
-    result = await session.execute(
-        select(Score.source, func.count(Score.id))
-        .where(Score.user_id == current_user.id)
-        .group_by(Score.source)
-    )
-    source_counts = {"mcsu": 0, "api": 0}
-    for source, count in result.all():
-        source_counts[str(source)] = count
-
-    result = await session.execute(
-        select(Score.rank, func.count(Score.id))
-        .where(Score.user_id == current_user.id)
-        .group_by(Score.rank)
-    )
-    grades = {"XH": 0, "X": 0, "SH": 0, "S": 0, "A": 0, "B": 0, "C": 0, "D": 0}
-    for rank, count in result.all():
-        g = str(rank).strip().upper()
-        if g in grades:
-            grades[g] = count
-
-    result = await session.execute(
-        select(Score)
-        .where(Score.user_id == current_user.id)
-        .order_by(Score.ap.desc())
-        .limit(5)
-    )
-    top_scores = [
-        {
-            "beatmap_title": s.beatmap_title,
-            "accuracy": s.accuracy,
-            "grade": s.rank,
-            "mods": s.mods,
-            "max_combo": s.max_combo,
-            "pp": s.pp,
-            "ap": s.ap,
-            "source": s.source,
-            "played_at": s.played_at.isoformat() if s.played_at else None,
-        }
-        for s in result.scalars().all()
-    ]
-
-    return {
-        "osu_id": current_user.osu_id,
-        "username": current_user.username,
-        "avatar_url": current_user.avatar_url,
-        "total_ap": round(total_ap, 2),
-        "best_ap": round(best_ap, 2),
-        "games": total_scores,
-        "daily_goal": goal,
-        "goals_done": goals_done,
-        "source_counts": source_counts,
-        "grades": grades,
-        "top_scores": top_scores,
-    }
+    return await build_profile(session, current_user)
 
 
 @router.get("/me/goal")
@@ -204,37 +281,9 @@ async def get_scores(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    result = await session.execute(
-        select(Score).where(Score.user_id == current_user.id)
+    return await list_scores(
+        session, current_user.id, limit=limit, offset=offset, date=date
     )
-    scores = result.scalars().all()
-
-    if date:
-        scores = [s for s in scores if (s.played_at or datetime.min).date().isoformat() == date]
-        scores.sort(key=lambda s: s.ap, reverse=True)
-    else:
-        scores.sort(key=lambda s: s.played_at or datetime.min, reverse=True)
-        scores = scores[offset:offset + limit]
-
-    return [
-        {
-            "id": s.id,
-            "beatmap_id": s.beatmap_id,
-            "beatmap_title": s.beatmap_title,
-            "beatmap_url": s.beatmap_url,
-            "mods": s.mods,
-            "source": s.source,
-            "accuracy": s.accuracy,
-            "max_combo": s.max_combo,
-            "pp": s.pp,
-            "ap": s.ap,
-            "grade": s.rank,
-            "rank": s.rank,
-            "stars": s.stars,
-            "played_at": s.played_at.isoformat() if s.played_at else None,
-        }
-        for s in scores
-    ]
 
 
 @router.get("/me/daily")
@@ -242,26 +291,7 @@ async def get_daily(
     session: AsyncSession = Depends(get_session),
     current_user: User = Depends(get_current_user),
 ):
-    result = await session.execute(
-        select(Score.played_at, Score.ap).where(Score.user_id == current_user.id)
-    )
-    daily: dict[str, list[float]] = {}
-    for played_at, ap in result.all():
-        day = played_at.date().isoformat() if played_at else "unknown"
-        daily.setdefault(day, []).append(ap or 0.0)
-
-    rows = []
-    for day, values in daily.items():
-        rows.append(
-            {
-                "date": day,
-                "total_ap": round(sum(values), 2),
-                "scores_count": len(values),
-                "best_score_ap": round(max(values), 2),
-            }
-        )
-    rows.sort(key=lambda r: r["date"], reverse=True)
-    return rows
+    return await daily_rows(session, current_user.id)
 
 
 @router.get("/me/ap-history")
@@ -286,3 +316,65 @@ async def get_ap_history(
         "labels": [d for d, _ in items],
         "values": [round(v, 2) for _, v in items],
     }
+
+
+@router.get("/players")
+async def list_players(
+    session: AsyncSession = Depends(get_session),
+):
+    total_ap_expr = func.coalesce(func.sum(Score.ap), 0.0)
+    result = await session.execute(
+        select(
+            User.osu_id,
+            User.username,
+            User.avatar_url,
+            total_ap_expr.label("total_ap"),
+            func.count(Score.id).label("games"),
+        )
+        .select_from(User)
+        .outerjoin(Score, Score.user_id == User.id)
+        .group_by(User.id, User.osu_id, User.username, User.avatar_url)
+        .order_by(total_ap_expr.desc())
+    )
+    return [
+        {
+            "osu_id": osu_id,
+            "username": username,
+            "avatar_url": avatar_url,
+            "total_ap": round(total_ap, 2),
+            "games": games,
+        }
+        for osu_id, username, avatar_url, total_ap, games in result.all()
+    ]
+
+
+@router.get("/players/{osu_id}/profile")
+async def get_public_profile(
+    osu_id: int,
+    session: AsyncSession = Depends(get_session),
+):
+    user = await get_user_by_osu_id(session, osu_id)
+    return await build_profile(session, user)
+
+
+@router.get("/players/{osu_id}/scores")
+async def get_public_scores(
+    osu_id: int,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    date: str | None = Query(None),
+    session: AsyncSession = Depends(get_session),
+):
+    user = await get_user_by_osu_id(session, osu_id)
+    return await list_scores(
+        session, user.id, limit=limit, offset=offset, date=date
+    )
+
+
+@router.get("/players/{osu_id}/daily")
+async def get_public_daily(
+    osu_id: int,
+    session: AsyncSession = Depends(get_session),
+):
+    user = await get_user_by_osu_id(session, osu_id)
+    return await daily_rows(session, user.id)

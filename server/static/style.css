@@ -390,3 +390,62 @@ td.grade { font-weight: 700; }
 }
 .src-mcsu { border-color: var(--blue-dim); color: var(--blue); }
 .src-api { border-color: var(--pink); color: var(--pink); }
+
+/* ---------- Players list ---------- */
+
+.players-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+    margin-top: 1.2rem;
+}
+
+.player-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.9rem 1.1rem;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+    text-decoration: none;
+    color: var(--text);
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.player-row:hover {
+    border-color: var(--blue);
+    background: rgba(74, 155, 232, 0.08);
+}
+
+.player-avatar {
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    object-fit: cover;
+    flex-shrink: 0;
+}
+
+.player-name {
+    font-weight: 700;
+    font-size: 1rem;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.player-stats {
+    color: var(--muted);
+    font-size: 0.85rem;
+    white-space: nowrap;
+}
+
+.player-ap {
+    color: var(--gold);
+    font-weight: 700;
+    font-size: 0.95rem;
+    white-space: nowrap;
+}

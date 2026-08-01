@@ -47,3 +47,34 @@ async def profile_page(
             "logged_in": user_id is not None,
         },
     )
+
+
+@router.get("/players", response_class=HTMLResponse)
+async def players_page(request: Request):
+    return templates.TemplateResponse(
+        request,
+        "players.html",
+        {
+            "request": request,
+            "token": "",
+            "logged_in": False,
+        },
+    )
+
+
+@router.get("/player/{osu_id}", response_class=HTMLResponse)
+async def public_profile_page(
+    request: Request,
+    osu_id: int,
+):
+    return templates.TemplateResponse(
+        request,
+        "profile.html",
+        {
+            "request": request,
+            "token": "",
+            "logged_in": False,
+            "viewing_other": True,
+            "osu_id": osu_id,
+        },
+    )
