@@ -9,7 +9,18 @@
 
 <div id="players">
     <p class="empty" id="playersEmpty" style="display:none">No players yet.</p>
-    <div class="players-list" id="playersList"></div>
+    <div class="table-wrap">
+        <table id="playersTable" style="display:none">
+            <thead>
+                <tr>
+                    <th>Player</th>
+                    <th class="col-num">Games</th>
+                    <th class="col-num">Total AP</th>
+                </tr>
+            </thead>
+            <tbody id="playersBody"></tbody>
+        </table>
+    </div>
 </div>
 
 <script>
@@ -33,20 +44,26 @@ async function loadPlayers() {
     } catch (e) {
         players = [];
     }
-    const list = document.getElementById("playersList");
     const empty = document.getElementById("playersEmpty");
+    const table = document.getElementById("playersTable");
+    const body = document.getElementById("playersBody");
     if (!players.length) {
         empty.style.display = "block";
         return;
     }
-    list.innerHTML = players.map(p => `
-        <a class="player-row" href="/player/${p.osu_id}">
-            <img src="${escapeHtml(p.avatar_url)}" alt="" class="player-avatar"
-                 onerror="this.style.visibility='hidden'">
-            <span class="player-name">${escapeHtml(p.username)}</span>
-            <span class="player-stats">${formatNum(p.games)} games</span>
-            <span class="player-ap">${formatNum(p.total_ap)} AP</span>
-        </a>
+    table.style.display = "table";
+    body.innerHTML = players.map(p => `
+        <tr class="player-row">
+            <td class="player-cell">
+                <a class="player-link" href="/player/${p.osu_id}">
+                    <img src="${escapeHtml(p.avatar_url)}" alt="" class="player-avatar"
+                         onerror="this.style.visibility='hidden'">
+                    <span class="player-name">${escapeHtml(p.username)}</span>
+                </a>
+            </td>
+            <td class="col-num player-games">${formatNum(p.games)}</td>
+            <td class="col-num player-ap">${formatNum(p.total_ap)} AP</td>
+        </tr>
     `).join("");
 }
 

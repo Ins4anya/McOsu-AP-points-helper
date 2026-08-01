@@ -393,34 +393,34 @@ td.grade { font-weight: 700; }
 
 /* ---------- Players list ---------- */
 
-.players-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.7rem;
-    margin-top: 1.2rem;
-}
+#players .table-wrap { margin-top: 1.2rem; }
 
-.player-row {
+.col-num { text-align: right; white-space: nowrap; }
+th.col-num, td.col-num { text-align: right; }
+
+.player-row { cursor: pointer; }
+
+.player-cell { position: relative; }
+
+.player-link {
     display: flex;
     align-items: center;
-    gap: 1rem;
-    padding: 0.9rem 1.1rem;
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    background: var(--surface);
-    text-decoration: none;
+    gap: 0.75rem;
     color: var(--text);
-    transition: border-color 0.15s ease, background 0.15s ease;
+    text-decoration: none;
+    font-weight: 700;
+    min-width: 0;
 }
 
-.player-row:hover {
-    border-color: var(--blue);
-    background: rgba(74, 155, 232, 0.08);
+.player-link::after {
+    content: "";
+    position: absolute;
+    inset: 0;
 }
 
 .player-avatar {
-    width: 46px;
-    height: 46px;
+    width: 32px;
+    height: 32px;
     border-radius: 50%;
     border: 1px solid var(--border);
     object-fit: cover;
@@ -428,24 +428,14 @@ td.grade { font-weight: 700; }
 }
 
 .player-name {
-    font-weight: 700;
-    font-size: 1rem;
-    flex: 1;
-    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.player-stats {
-    color: var(--muted);
-    font-size: 0.85rem;
-    white-space: nowrap;
-}
+.player-games { color: var(--muted); }
 
 .player-ap {
     color: var(--gold);
     font-weight: 700;
-    font-size: 0.95rem;
-    white-space: nowrap;
 }
