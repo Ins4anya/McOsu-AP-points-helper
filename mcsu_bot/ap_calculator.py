@@ -13,6 +13,10 @@ AIM_RATIO_THRESHOLD = 1.0
 AIM_STEP = 0.50
 AIM_CAP = 0.30
 
+AIM_FOCUSED_RATIO = 1.15
+SCORE_BONUS_PER_MILLION = 1_000_000
+SCORE_BONUS_STEP = 0.01
+
 MISS_PENALTY_FACTOR = 0.3
 
 MOD_BONUSES = {
@@ -47,6 +51,8 @@ class APBreakdown:
     stars_speed: float
     aim_ratio: float
     aim_bonus: float
+    score: int
+    score_bonus: float
     mod_mult: float
     mods_str: str
     grade: str
@@ -136,7 +142,8 @@ def explain_ap(score: OsuScore, meta: BeatmapMeta, accuracy: float,
             accuracy=0, acc_mult=0, combo_ratio=0,
             miss_penalty=0, count_miss=0, density=0, density_bonus=0,
             stars_aim=0, stars_speed=0, aim_ratio=0, aim_bonus=0,
-            mod_mult=0, mods_str="", grade="D", rank_bonus=0, ap=0,
+            score=0, score_bonus=0, mod_mult=0, mods_str="", grade="D",
+            rank_bonus=0, ap=0,
         )
 
     base_value = total_hits * effective_sr * SCALE
@@ -156,13 +163,18 @@ def explain_ap(score: OsuScore, meta: BeatmapMeta, accuracy: float,
     aim_ratio = stars_aim / max(stars_speed, 0.01)
     aim_bonus = min(max(0.0, (aim_ratio - AIM_RATIO_THRESHOLD) * AIM_STEP), AIM_CAP)
 
+    score_bonus = 0.0
+    if aim_ratio >= AIM_FOCUSED_RATIO and score.score > 0:
+        score_bonus = (score.score / SCORE_BONUS_PER_MILLION) * SCORE_BONUS_STEP
+
     mod_mult = _mod_multiplier(score.mods)
     mods_str = _mods_to_string(score.mods)
     grade = _calculate_grade(score.count300, total_hits, score.count50, score.count_miss, score.mods)
     rank_bonus = RANK_BONUSES.get(grade, 0.0)
 
     ap = max(0.0, base_value * acc_mult * combo_ratio * miss_penalty
-             * mod_mult * (1.0 + density_bonus) * (1.0 + aim_bonus) * (1.0 + rank_bonus))
+             * mod_mult * (1.0 + density_bonus) * (1.0 + aim_bonus)
+             * (1.0 + score_bonus) * (1.0 + rank_bonus))
 
     return APBreakdown(
         total_hits=total_hits,
@@ -179,6 +191,8 @@ def explain_ap(score: OsuScore, meta: BeatmapMeta, accuracy: float,
         stars_speed=stars_speed,
         aim_ratio=aim_ratio,
         aim_bonus=aim_bonus,
+        score=score.score,
+        score_bonus=score_bonus,
         mod_mult=mod_mult,
         mods_str=mods_str,
         grade=grade,

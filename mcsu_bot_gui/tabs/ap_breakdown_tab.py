@@ -1,5 +1,6 @@
 import customtkinter as ctk
 
+from mcsu_bot.ap_calculator import AIM_FOCUSED_RATIO
 from mcsu_bot_gui.widgets import (
     GlassTile,
     GlassPanel,
@@ -156,6 +157,7 @@ class APBreakdownTab(ctk.CTkFrame):
             ("Density Bonus", "—", "#e0e0e0"),
             ("Aim Ratio", "—", "#e0e0e0"),
             ("Aim Bonus", "—", "#e0e0e0"),
+            ("Score Bonus", "—", "#e0e0e0"),
         ])
         bonus["Density"].set_value(f"{bd.density:.1f} obj/s")
         bonus["Density Bonus"].set_value(f"+{bd.density_bonus*100:.1f}%",
@@ -163,6 +165,8 @@ class APBreakdownTab(ctk.CTkFrame):
         bonus["Aim Ratio"].set_value(f"{bd.aim_ratio:.2f}")
         bonus["Aim Bonus"].set_value(f"+{bd.aim_bonus*100:.1f}%",
                                       color="#66ff99" if bd.aim_bonus > 0 else "#888")
+        bonus["Score Bonus"].set_value(f"+{bd.score_bonus*100:.1f}%",
+                                        color="#66ff99" if bd.score_bonus > 0 else "#888")
 
         self._tiles["TOTAL"].set_value(f"{bd.ap:.0f} AP", color=ACCENT)
 
@@ -171,7 +175,7 @@ class APBreakdownTab(ctk.CTkFrame):
         self._show_all()
 
     def _set_verdict(self, bd):
-        if bd.aim_ratio >= 1.15:
+        if bd.aim_ratio >= AIM_FOCUSED_RATIO:
             vtype, color = "Aim-focused map", "#66bbff"
         elif bd.aim_ratio <= 0.85:
             vtype, color = "Speed / stream-focused map", "#ff69b4"
@@ -205,6 +209,8 @@ class APBreakdownTab(ctk.CTkFrame):
             bonuses.append(f"+{bd.aim_bonus*100:.0f}% aim")
         if bd.density_bonus > 0:
             bonuses.append(f"+{bd.density_bonus*100:.0f}% density")
+        if bd.score_bonus > 0:
+            bonuses.append(f"+{bd.score_bonus*100:.0f}% score")
         if bd.rank_bonus > 0:
             bonuses.append(f"+{bd.rank_bonus*100:.0f}% {bd.grade}")
         if bd.mod_mult > 1:
