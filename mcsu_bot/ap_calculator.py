@@ -40,6 +40,10 @@ class APBreakdown:
     total_hits: int
     star_rating: float
     base_value: float
+    num_circles: int
+    num_sliders: int
+    num_spinners: int
+    object_weight: int
     accuracy: float
     acc_mult: float
     combo_ratio: float
@@ -139,6 +143,7 @@ def explain_ap(score: OsuScore, meta: BeatmapMeta, accuracy: float,
     if total_hits == 0 or effective_sr == 0:
         return APBreakdown(
             total_hits=0, star_rating=0, base_value=0,
+            num_circles=0, num_sliders=0, num_spinners=0, object_weight=0,
             accuracy=0, acc_mult=0, combo_ratio=0,
             miss_penalty=0, count_miss=0, density=0, density_bonus=0,
             stars_aim=0, stars_speed=0, aim_ratio=0, aim_bonus=0,
@@ -146,7 +151,13 @@ def explain_ap(score: OsuScore, meta: BeatmapMeta, accuracy: float,
             rank_bonus=0, ap=0,
         )
 
-    base_value = total_hits * effective_sr * SCALE
+    num_circles = meta.num_circles
+    num_sliders = meta.num_sliders
+    num_spinners = meta.num_spinners
+    object_weight = meta.object_weight
+    base_objects = object_weight if object_weight > 0 else total_hits
+
+    base_value = base_objects * effective_sr * SCALE
     acc_mult = accuracy ** 1.2
     raw_combo_ratio = (
         score.max_combo / score.max_possible_combo
@@ -180,6 +191,10 @@ def explain_ap(score: OsuScore, meta: BeatmapMeta, accuracy: float,
         total_hits=total_hits,
         star_rating=effective_sr,
         base_value=base_value,
+        num_circles=num_circles,
+        num_sliders=num_sliders,
+        num_spinners=num_spinners,
+        object_weight=object_weight,
         accuracy=accuracy,
         acc_mult=acc_mult,
         combo_ratio=combo_ratio,

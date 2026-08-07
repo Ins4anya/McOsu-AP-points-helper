@@ -55,6 +55,50 @@ def _parse_osu_header(osu_bytes: bytes) -> dict:
     return result
 
 
+def _count_hit_objects(osu_bytes: bytes) -> tuple[int, int, int]:
+    circles = 0
+    sliders = 0
+    spinners = 0
+
+    text = osu_bytes.decode("utf-8", errors="replace")
+    in_section = False
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("//"):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            in_section = line == "[HitObjects]"
+            continue
+        if not in_section:
+            continue
+
+        parts = line.split(",")
+        if len(parts) < 3:
+            continue
+        try:
+            obj_type = int(parts[3])
+        except (IndexError, ValueError):
+            continue
+
+        if obj_type & 2:
+            sliders += 1
+        elif obj_type & 8:
+            spinners += 1
+        else:
+            circles += 1
+
+    return circles, sliders, spinners
+
+
+def _apply_object_weights(meta: BeatmapMeta, osu_bytes: bytes) -> BeatmapMeta:
+    circles, sliders, spinners = _count_hit_objects(osu_bytes)
+    meta.num_circles = circles
+    meta.num_sliders = sliders
+    meta.num_spinners = spinners
+    meta.object_weight = circles + 2 * sliders + spinners
+    return meta
+
+
 def _build_meta_from_osu(osu_bytes: bytes) -> Optional[BeatmapMeta]:
     parsed = _parse_osu_header(osu_bytes)
 
@@ -75,7 +119,7 @@ def _build_meta_from_osu(osu_bytes: bytes) -> Optional[BeatmapMeta]:
     last_time = parsed.get("LastHitTime", 0)
     length = last_time // 1000
 
-    return BeatmapMeta(
+    meta = BeatmapMeta(
         artist=artist,
         title=title,
         difficulty=version,
@@ -87,6 +131,8 @@ def _build_meta_from_osu(osu_bytes: bytes) -> Optional[BeatmapMeta]:
         hp=hp,
         length=length,
     )
+
+    return _apply_object_weights(meta, osu_bytes)
 
 
 def _build_md5_index(songs_dir: Path, index_path: Path):

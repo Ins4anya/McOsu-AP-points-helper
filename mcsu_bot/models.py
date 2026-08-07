@@ -40,6 +40,10 @@ class BeatmapMeta:
     hp: float = 0.0
     star_rating: float = 0.0
     length: int = 0  # seconds
+    num_circles: int = 0
+    num_sliders: int = 0
+    num_spinners: int = 0
+    object_weight: int = 0
     bg_url: str = ""
     cover_url: str = ""
     map_url: str = ""

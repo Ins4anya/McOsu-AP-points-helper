@@ -6,7 +6,7 @@ from discord.ext import commands
 
 from .config import Config
 from .db_reader import read_latest_score as read_latest_score_mcsu
-from .osu_api import OsuAPI, _api_score_to_osu_score
+from .osu_api import OsuAPI, _api_score_to_osu_score, _apply_object_weights
 from .pp_calculator import calculate_pp
 from .embed_builder import build_embed
 from .ap_calculator import calculate_ap, _calculate_grade
@@ -102,6 +102,8 @@ class OsuCommands(commands.Cog):
             except Exception as e:
                 await ctx.send(f"Failed to calculate PP: {e}")
                 return
+
+            meta = _apply_object_weights(meta, osu_file)
 
             ap = calculate_ap(score, meta, pp_result.accuracy, pp_result.star_rating_mods, pp_result)
             total_hits = score.count300 + score.count100 + score.count50 + score.count_miss

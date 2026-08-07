@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS scores (
     count300 INTEGER, count100 INTEGER, count50 INTEGER, count_miss INTEGER,
     accuracy REAL, grade TEXT, mods TEXT, pp REAL, ap REAL,
     total_hits INTEGER, star_rating REAL, length_sec INTEGER,
+    num_circles INTEGER, num_sliders INTEGER, num_spinners INTEGER, object_weight INTEGER,
     timestamp INTEGER NOT NULL,
     player_name TEXT,
     created_at TEXT DEFAULT (datetime('now'))
@@ -45,12 +46,22 @@ class Database:
         self.conn.execute("PRAGMA foreign_keys=ON")
         self.conn.executescript(CREATE_SCORES)
         self.conn.executescript(CREATE_DAILY)
+        self._migrate()
         self.conn.commit()
 
     def close(self):
         if self.conn:
             self.conn.close()
             self.conn = None
+
+    def _migrate(self):
+        existing = {
+            row["name"]
+            for row in self.conn.execute("PRAGMA table_info(scores)").fetchall()
+        }
+        for col in ("num_circles", "num_sliders", "num_spinners", "object_weight"):
+            if col not in existing:
+                self.conn.execute(f"ALTER TABLE scores ADD COLUMN {col} INTEGER DEFAULT 0")
 
     def is_duplicate(self, score: OsuScore, accuracy: float) -> bool:
         mods_str = self._mods_to_string(score.mods)
@@ -87,13 +98,15 @@ class Database:
                 count300, count100, count50, count_miss,
                 accuracy, grade, mods, pp, ap,
                 total_hits, star_rating, length_sec,
+                num_circles, num_sliders, num_spinners, object_weight,
                 timestamp, player_name)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 title, score.beatmap_md5, score.score, score.max_combo,
                 score.count300, score.count100, score.count50, score.count_miss,
                 accuracy, grade, mods_str, score.pp, ap,
                 total_hits, meta.star_rating, meta.length,
+                meta.num_circles, meta.num_sliders, meta.num_spinners, meta.object_weight,
                 score.timestamp, score.player_name,
             ),
         )

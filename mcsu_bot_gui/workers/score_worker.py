@@ -7,7 +7,7 @@ from mcsu_bot.models import OsuScore, BeatmapMeta, PPResult
 from mcsu_bot.db_reader import read_latest_score as read_latest_score_mcsu
 from mcsu_bot.pp_calculator import calculate_pp
 from mcsu_bot.ap_calculator import calculate_ap, explain_ap, APBreakdown, _calculate_grade
-from mcsu_bot.osu_api import OsuAPI, _api_score_to_osu_score
+from mcsu_bot.osu_api import OsuAPI, _api_score_to_osu_score, _apply_object_weights
 from mcsu_bot.database import Database
 
 
@@ -96,6 +96,8 @@ class ScoreFetcher(threading.Thread):
             result.error = f"Failed to calculate PP: {e}"
             self.on_done(result)
             return
+
+        meta = _apply_object_weights(meta, osu_file)
 
         result.score = score
         result.meta = meta

@@ -132,7 +132,13 @@ class APBreakdownTab(ctk.CTkFrame):
             ("Star Rating", "—", "#66bbff"),
             ("Base AP", "—", "#66bbff"),
         ])
-        base["Objects"].set_value(str(bd.total_hits))
+        if bd.object_weight > 0:
+            objects_txt = str(bd.object_weight)
+            if bd.num_sliders:
+                objects_txt += f"  ({bd.num_circles}+2×{bd.num_sliders})"
+        else:
+            objects_txt = str(bd.total_hits)
+        base["Objects"].set_value(objects_txt)
         base["Star Rating"].set_value(f"{bd.star_rating:.2f}★")
         base["Base AP"].set_value(f"{bd.base_value:.1f}")
 
