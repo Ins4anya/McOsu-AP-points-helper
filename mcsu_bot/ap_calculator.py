@@ -19,6 +19,10 @@ SCORE_BONUS_STEP = 0.01
 
 MISS_PENALTY_FACTOR = 0.3
 
+DT_BIT = 1 << 6
+HT_BIT = 1 << 8
+NC_BIT = 1 << 9
+
 MOD_BONUSES = {
     1 << 0: 0,
     1 << 1: 0.05,
@@ -61,6 +65,7 @@ class APBreakdown:
     mods_str: str
     grade: str
     rank_bonus: float
+    rate: float
     ap: float
 
 
@@ -68,18 +73,26 @@ def _has_bit(mods: int, bit: int) -> bool:
     return bool(mods & bit)
 
 
-def _mod_multiplier(mods: int) -> float:
+def _mod_multiplier(mods: int, speed_mult: Optional[float] = None) -> float:
     mult = 1.0
+    rate = speed_mult if speed_mult is not None and speed_mult > 0 else 1.0
     for bit, bonus in MOD_BONUSES.items():
+        if bit in (DT_BIT, HT_BIT, NC_BIT):
+            continue
         if _has_bit(mods, bit):
             mult += bonus
-    if _has_bit(mods, 1 << 9):
-        mult -= MOD_BONUSES.get(1 << 6, 0)
+    if rate != 1.0:
+        bonus = 0.15 * (rate - 1.0) / 0.5
+        if bonus > 0:
+            mult += bonus
+    elif speed_mult is None:
+        if _has_bit(mods, NC_BIT) or _has_bit(mods, DT_BIT):
+            mult += MOD_BONUSES.get(DT_BIT, 0.15)
     return mult
 
 
-def _mods_to_string(mods: int) -> str:
-    if mods == 0:
+def _mods_to_string(mods: int, speed_mult: Optional[float] = None) -> str:
+    if mods == 0 and (speed_mult is None or abs(speed_mult - 1.0) < 0.005):
         return "NM"
     MODS_BITMAP = {
         1 << 0: "NF", 1 << 1: "EZ", 1 << 2: "TD", 1 << 3: "HD",
@@ -99,7 +112,16 @@ def _mods_to_string(mods: int) -> str:
         result.remove("DT")
     if "PF" in result and "SD" in result:
         result.remove("SD")
-    return "+" + "".join(result)
+    tag = ""
+    if speed_mult is not None and speed_mult > 0:
+        expected = 1.5 if (mods & (DT_BIT | NC_BIT)) else (0.75 if (mods & HT_BIT) else 1.0)
+        if abs(speed_mult - expected) >= 0.005:
+            tag = f"{speed_mult:g}x"
+    if not result and not tag:
+        return "NM"
+    if not result:
+        return f"+{tag}"
+    return "+" + "".join(result) + (f" {tag}" if tag else "")
 
 
 def _calculate_grade(count300: int, total_hits: int, count50: int, misses: int, mods: int) -> str:
@@ -148,7 +170,7 @@ def explain_ap(score: OsuScore, meta: BeatmapMeta, accuracy: float,
             miss_penalty=0, count_miss=0, density=0, density_bonus=0,
             stars_aim=0, stars_speed=0, aim_ratio=0, aim_bonus=0,
             score=0, score_bonus=0, mod_mult=0, mods_str="", grade="D",
-            rank_bonus=0, ap=0,
+            rank_bonus=0, rate=0, ap=0,
         )
 
     num_circles = meta.num_circles
@@ -156,6 +178,9 @@ def explain_ap(score: OsuScore, meta: BeatmapMeta, accuracy: float,
     num_spinners = meta.num_spinners
     object_weight = meta.object_weight
     base_objects = object_weight if object_weight > 0 else total_hits
+
+    rate = score.speed_mult if score.speed_mult is not None and score.speed_mult > 0 else 1.0
+    effective_length = meta.length / rate if meta.length > 0 and rate > 0 else meta.length
 
     base_value = base_objects * effective_sr * SCALE
     acc_mult = accuracy ** 1.2
@@ -166,7 +191,7 @@ def explain_ap(score: OsuScore, meta: BeatmapMeta, accuracy: float,
     )
     combo_ratio = raw_combo_ratio ** 0.5
     miss_penalty = max(0.0, 1.0 - MISS_PENALTY_FACTOR * score.count_miss / total_hits)
-    density = total_hits / meta.length if meta.length > 0 else 0.0
+    density = total_hits / effective_length if effective_length > 0 else 0.0
     density_bonus = min(max(0.0, (density - DENSITY_THRESHOLD) * DENSITY_STEP), DENSITY_CAP)
 
     stars_aim = pp_result.stars_aim_mods if (pp_result and pp_result.stars_aim_mods) else score.stars_aim
@@ -178,8 +203,8 @@ def explain_ap(score: OsuScore, meta: BeatmapMeta, accuracy: float,
     if aim_ratio >= AIM_FOCUSED_RATIO and score.score > 0:
         score_bonus = (score.score / SCORE_BONUS_PER_MILLION) * SCORE_BONUS_STEP
 
-    mod_mult = _mod_multiplier(score.mods)
-    mods_str = _mods_to_string(score.mods)
+    mod_mult = _mod_multiplier(score.mods, score.speed_mult)
+    mods_str = _mods_to_string(score.mods, score.speed_mult)
     grade = _calculate_grade(score.count300, total_hits, score.count50, score.count_miss, score.mods)
     rank_bonus = RANK_BONUSES.get(grade, 0.0)
 
@@ -212,5 +237,6 @@ def explain_ap(score: OsuScore, meta: BeatmapMeta, accuracy: float,
         mods_str=mods_str,
         grade=grade,
         rank_bonus=rank_bonus,
+        rate=rate,
         ap=ap,
     )

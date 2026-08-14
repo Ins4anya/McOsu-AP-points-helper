@@ -140,6 +140,11 @@ def sync_all_scores(
             "stars": float(row["star_rating"] or 0.0),
             "ar": 0.0,
             "md5": row["beatmap_md5"] or "",
+            "speed_mult": float(row["speed_mult"] or 1.0),
+            "eff_cs": float(row["eff_cs"] or 0.0),
+            "eff_ar": float(row["eff_ar"] or 0.0),
+            "eff_od": float(row["eff_od"] or 0.0),
+            "eff_hp": float(row["eff_hp"] or 0.0),
             "played_at": datetime.fromtimestamp(
                 int(row["timestamp"]), tz=timezone.utc
             ).isoformat(),

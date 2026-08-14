@@ -69,9 +69,26 @@ def apply_mods_to_stats(ar: float, od: float, cs: float, hp: float, bpm: float, 
     return ar, od, cs, hp, bpm
 
 
-def mods_to_string(mods: int) -> str:
-    if mods == 0:
+def _expected_rate(mods: int) -> float:
+    if _has_bit(mods, DT_BIT) or _has_bit(mods, NC_BIT):
+        return 1.5
+    if _has_bit(mods, 1 << 8):
+        return 0.75
+    return 1.0
+
+
+def rate_tag(mods: int, speed_mult: Optional[float]) -> str:
+    if speed_mult is None or speed_mult <= 0 or abs(speed_mult - 1.0) < 0.005:
         return ""
+    if abs(speed_mult - _expected_rate(mods)) < 0.005:
+        return ""
+    return f"{speed_mult:g}x"
+
+
+def mods_to_string(mods: int, speed_mult: Optional[float] = None) -> str:
+    tag = rate_tag(mods, speed_mult)
+    if mods == 0:
+        return f"+{tag}" if tag else ""
     result: list[str] = []
     for bit, name in MODS_BITMAP.items():
         if mods & bit:
@@ -80,7 +97,8 @@ def mods_to_string(mods: int) -> str:
         result.remove("DT")
     if "PF" in result and "SD" in result:
         result.remove("SD")
-    return "+" + "".join(result)
+    base = "+" + "".join(result)
+    return f"{base} {tag}" if tag else base
 
 
 def calculate_rank(count300: int, total_hits: int, count50: int, misses: int, mods: int) -> str:
@@ -179,7 +197,7 @@ def build_embed(
     arrow = EMOJIS.arrow or "▸"
     bullet = "•"
 
-    mods_str = mods_to_string(score.mods)
+    mods_str = mods_to_string(score.mods, getattr(score, "speed_mult", None))
     title = f"{meta.artist} - {meta.title} [{meta.difficulty}]"
     if mods_str:
         title += f" {mods_str}"
@@ -203,9 +221,16 @@ def build_embed(
     hits_line = f"{arrow} {hits_text}"
 
     length_str = format_duration(meta.length)
-    mod_ar, mod_od, mod_cs, mod_hp, mod_bpm = apply_mods_to_stats(
-        meta.ar, meta.od, meta.cs, meta.hp, meta.bpm, score.mods
-    )
+    speed_mult = getattr(score, "speed_mult", None)
+    if speed_mult is not None and speed_mult > 0 and getattr(score, "cs", 0) > 0:
+        eff_length = int(round(meta.length / speed_mult))
+        length_str = format_duration(eff_length)
+        mod_ar, mod_od, mod_cs, mod_hp = score.ar, score.od, score.cs, score.hp
+        mod_bpm = meta.bpm * speed_mult if meta.bpm > 0 else 0
+    else:
+        mod_ar, mod_od, mod_cs, mod_hp, mod_bpm = apply_mods_to_stats(
+            meta.ar, meta.od, meta.cs, meta.hp, meta.bpm, score.mods
+        )
     stats_line = (
         f"{arrow} {length_str}"
         f" {arrow} {int(mod_bpm)}"

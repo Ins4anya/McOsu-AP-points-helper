@@ -17,13 +17,15 @@ CREATE TABLE IF NOT EXISTS scores (
     accuracy REAL, grade TEXT, mods TEXT, pp REAL, ap REAL,
     total_hits INTEGER, star_rating REAL, length_sec INTEGER,
     num_circles INTEGER, num_sliders INTEGER, num_spinners INTEGER, object_weight INTEGER,
+    speed_mult REAL DEFAULT 1.0,
+    eff_cs REAL DEFAULT 0.0, eff_ar REAL DEFAULT 0.0, eff_od REAL DEFAULT 0.0, eff_hp REAL DEFAULT 0.0,
     timestamp INTEGER NOT NULL,
     player_name TEXT,
     created_at TEXT DEFAULT (datetime('now'))
 )
 """
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _LEGACY_COLUMNS = ("num_circles", "num_sliders", "num_spinners", "object_weight")
 
@@ -79,6 +81,25 @@ class Database:
             self._migrate_to_v2()
             self._set_version(2)
             version = 2
+        if version < 3:
+            self._migrate_to_v3()
+            self._set_version(3)
+            version = 3
+
+    def _migrate_to_v3(self):
+        existing = {
+            row["name"]
+            for row in self.conn.execute("PRAGMA table_info(scores)").fetchall()
+        }
+        for col, ddl in (
+            ("speed_mult", "REAL DEFAULT 1.0"),
+            ("eff_cs", "REAL DEFAULT 0.0"),
+            ("eff_ar", "REAL DEFAULT 0.0"),
+            ("eff_od", "REAL DEFAULT 0.0"),
+            ("eff_hp", "REAL DEFAULT 0.0"),
+        ):
+            if col not in existing:
+                self.conn.execute(f"ALTER TABLE scores ADD COLUMN {col} {ddl}")
 
     def _migrate_to_v2(self):
         existing = {
@@ -131,7 +152,7 @@ class Database:
         commit: bool = True,
     ) -> bool:
         total_hits = score.count300 + score.count100 + score.count50 + score.count_miss
-        mods_str = self._mods_to_string(score.mods)
+        mods_str = self._mods_to_string(score.mods, score.speed_mult)
         title = f"{meta.artist} - {meta.title} [{meta.difficulty}]"
         key = make_score_key(score.beatmap_md5, mods_str, score.max_combo, accuracy, score.pp)
 
@@ -142,14 +163,17 @@ class Database:
                 accuracy, grade, mods, pp, ap,
                 total_hits, star_rating, length_sec,
                 num_circles, num_sliders, num_spinners, object_weight,
+                speed_mult, eff_cs, eff_ar, eff_od, eff_hp,
                 timestamp, player_name, score_key)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 title, score.beatmap_md5, score.score, score.max_combo,
                 score.count300, score.count100, score.count50, score.count_miss,
                 accuracy, grade, mods_str, score.pp, ap,
                 total_hits, meta.star_rating, meta.length,
                 meta.num_circles, meta.num_sliders, meta.num_spinners, meta.object_weight,
+                score.speed_mult if score.speed_mult is not None else 1.0,
+                score.cs, score.ar, score.od, score.hp,
                 score.timestamp, score.player_name, key,
             ),
         )
@@ -164,8 +188,8 @@ class Database:
         return cur.fetchall()
 
     @staticmethod
-    def _mods_to_string(mods: int) -> str:
-        if mods == 0:
+    def _mods_to_string(mods: int, speed_mult=None) -> str:
+        if mods == 0 and (speed_mult is None or abs(speed_mult - 1.0) < 0.005):
             return "NM"
         MODS_BITMAP = {
             1 << 0: "NF", 1 << 1: "EZ", 1 << 2: "TD", 1 << 3: "HD",
@@ -185,4 +209,10 @@ class Database:
             result.remove("DT")
         if "PF" in result and "SD" in result:
             result.remove("SD")
-        return "+" + "".join(result)
+        tag = ""
+        if speed_mult is not None and speed_mult > 0:
+            expected = 1.5 if (mods & (1 << 6 | 1 << 9)) else (0.75 if (mods & (1 << 8)) else 1.0)
+            if abs(speed_mult - expected) >= 0.005:
+                tag = f" {speed_mult:g}x"
+        base = "+" + "".join(result)
+        return base + tag if (result or tag) else "NM"

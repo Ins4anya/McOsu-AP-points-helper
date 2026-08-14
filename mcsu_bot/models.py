@@ -23,6 +23,11 @@ class OsuScore:
     num_hit_objects: int = 0
     stars_aim: float = 0.0
     stars_speed: float = 0.0
+    speed_mult: Optional[float] = None
+    cs: float = 0.0
+    ar: float = 0.0
+    od: float = 0.0
+    hp: float = 0.0
 
 
 @dataclass

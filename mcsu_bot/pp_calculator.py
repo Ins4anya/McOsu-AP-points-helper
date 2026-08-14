@@ -2,6 +2,20 @@ import rosu_pp_py as rpp
 
 from .models import OsuScore, PPResult
 
+HR_BIT = 1 << 4
+EZ_BIT = 1 << 1
+
+
+def _perf_kwargs(score: OsuScore, lazer: bool) -> dict:
+    kwargs = {"lazer": lazer}
+    if score.speed_mult is not None and score.speed_mult > 0:
+        kwargs["clock_rate"] = score.speed_mult
+    if score.cs > 0 or score.ar > 0 or score.od > 0 or score.hp > 0:
+        kwargs.update(cs=score.cs, ar=score.ar, od=score.od, hp=score.hp)
+    if score.mods & (HR_BIT | EZ_BIT):
+        kwargs.update(fixed_cs=True, fixed_ar=True, fixed_od=True, fixed_hp=True)
+    return kwargs
+
 
 def calculate_pp(osu_file_bytes: bytes, score: OsuScore, lazer: bool = False) -> PPResult:
     beatmap = rpp.Beatmap(bytes=osu_file_bytes)
@@ -17,7 +31,7 @@ def calculate_pp(osu_file_bytes: bytes, score: OsuScore, lazer: bool = False) ->
         n50=score.count50,
         misses=score.count_miss,
         accuracy=accuracy * 100.0,
-        lazer=lazer,
+        **_perf_kwargs(score, lazer),
     )
     attrs = perf.calculate(beatmap)
     pp = attrs.pp
@@ -34,7 +48,7 @@ def calculate_pp(osu_file_bytes: bytes, score: OsuScore, lazer: bool = False) ->
         n50=0,
         misses=0,
         accuracy=100.0,
-        lazer=lazer,
+        **_perf_kwargs(score, lazer),
     )
     attrs_fc = perf_fc.calculate(beatmap)
     pp_fc = attrs_fc.pp

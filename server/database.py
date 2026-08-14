@@ -75,6 +75,12 @@ class Score(Base):
     stars: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     ar: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
 
+    speed_mult: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    eff_cs: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    eff_ar: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    eff_od: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    eff_hp: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
     played_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(timezone.utc)

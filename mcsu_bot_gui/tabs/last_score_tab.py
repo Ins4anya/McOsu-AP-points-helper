@@ -467,6 +467,11 @@ class LastScoreTab(ctk.CTkFrame):
             "aim": r.breakdown.stars_aim if r.breakdown else 0.0,
             "stars": r.breakdown.star_rating if r.breakdown else r.meta.star_rating,
             "ar": r.meta.ar,
+            "speed_mult": r.score.speed_mult if r.score.speed_mult else 1.0,
+            "eff_cs": r.score.cs,
+            "eff_ar": r.score.ar,
+            "eff_od": r.score.od,
+            "eff_hp": r.score.hp,
             "played_at": played_at,
         }
 

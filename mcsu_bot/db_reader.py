@@ -89,11 +89,11 @@ def _parse_score(
     _stars_total, offset = _read_float(data, offset)
     stars_aim, offset = _read_float(data, offset)
     stars_speed, offset = _read_float(data, offset)
-    _speed_mult, offset = _read_float(data, offset)
-    _cs, offset = _read_float(data, offset)
-    _ar, offset = _read_float(data, offset)
-    _od, offset = _read_float(data, offset)
-    _hp, offset = _read_float(data, offset)
+    speed_mult, offset = _read_float(data, offset)
+    cs, offset = _read_float(data, offset)
+    ar, offset = _read_float(data, offset)
+    od, offset = _read_float(data, offset)
+    hp, offset = _read_float(data, offset)
 
     max_possible_combo = 0
     num_hit_objects = 0
@@ -129,6 +129,11 @@ def _parse_score(
         num_hit_objects=num_hit_objects,
         stars_aim=stars_aim,
         stars_speed=stars_speed,
+        speed_mult=speed_mult if speed_mult > 0 else None,
+        cs=cs,
+        ar=ar,
+        od=od,
+        hp=hp,
     )
     return score, offset
 

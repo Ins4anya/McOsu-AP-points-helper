@@ -81,6 +81,15 @@ async def build_profile(session: AsyncSession, user: User) -> dict:
             "max_combo": s.max_combo,
             "pp": s.pp,
             "ap": s.ap,
+            "stars": s.stars,
+            "density": s.density,
+            "aim": s.aim,
+            "ar": s.ar,
+            "speed_mult": s.speed_mult,
+            "eff_cs": s.eff_cs,
+            "eff_ar": s.eff_ar,
+            "eff_od": s.eff_od,
+            "eff_hp": s.eff_hp,
             "source": s.source,
             "played_at": s.played_at.isoformat() if s.played_at else None,
         }
@@ -134,6 +143,14 @@ async def list_scores(
             "grade": s.rank,
             "rank": s.rank,
             "stars": s.stars,
+            "density": s.density,
+            "aim": s.aim,
+            "ar": s.ar,
+            "speed_mult": s.speed_mult,
+            "eff_cs": s.eff_cs,
+            "eff_ar": s.eff_ar,
+            "eff_od": s.eff_od,
+            "eff_hp": s.eff_hp,
             "played_at": s.played_at.isoformat() if s.played_at else None,
         }
         for s in scores
@@ -234,6 +251,11 @@ async def submit_score(
         aim=float(score_data.get("aim", 0.0)),
         stars=float(score_data.get("stars", 0.0)),
         ar=float(score_data.get("ar", 0.0)),
+        speed_mult=float(score_data.get("speed_mult", 1.0)),
+        eff_cs=float(score_data.get("eff_cs", 0.0)),
+        eff_ar=float(score_data.get("eff_ar", 0.0)),
+        eff_od=float(score_data.get("eff_od", 0.0)),
+        eff_hp=float(score_data.get("eff_hp", 0.0)),
         played_at=played_at,
     )
     session.add(score)
