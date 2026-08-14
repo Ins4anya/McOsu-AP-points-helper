@@ -1,5 +1,5 @@
+import hashlib
 import sqlite3
-from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -23,15 +23,16 @@ CREATE TABLE IF NOT EXISTS scores (
 )
 """
 
-CREATE_DAILY = """
-CREATE TABLE IF NOT EXISTS daily_ap (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    date TEXT UNIQUE NOT NULL,
-    total_ap REAL NOT NULL DEFAULT 0,
-    scores_count INTEGER NOT NULL DEFAULT 0,
-    best_score_ap REAL NOT NULL DEFAULT 0
-)
-"""
+SCHEMA_VERSION = 2
+
+_LEGACY_COLUMNS = ("num_circles", "num_sliders", "num_spinners", "object_weight")
+
+
+def make_score_key(
+    md5: str, mods: str, max_combo: int, accuracy: float, pp: float
+) -> str:
+    payload = f"{md5}|{mods}|{max_combo}|{round(accuracy, 4)}|{round(pp, 1)}"
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()
 
 
 class Database:
@@ -44,8 +45,8 @@ class Database:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA foreign_keys=ON")
+        self.conn.execute("PRAGMA busy_timeout=5000")
         self.conn.executescript(CREATE_SCORES)
-        self.conn.executescript(CREATE_DAILY)
         self._migrate()
         self.conn.commit()
 
@@ -54,27 +55,71 @@ class Database:
             self.conn.close()
             self.conn = None
 
+    def _version(self) -> int:
+        return self.conn.execute("PRAGMA user_version").fetchone()[0]
+
+    def _set_version(self, version: int):
+        self.conn.execute(f"PRAGMA user_version = {int(version)}")
+
     def _migrate(self):
+        version = self._version()
+        if version < 1:
+            existing = {
+                row["name"]
+                for row in self.conn.execute("PRAGMA table_info(scores)").fetchall()
+            }
+            for col in _LEGACY_COLUMNS:
+                if col not in existing:
+                    self.conn.execute(
+                        f"ALTER TABLE scores ADD COLUMN {col} INTEGER DEFAULT 0"
+                    )
+            self._set_version(1)
+            version = 1
+        if version < 2:
+            self._migrate_to_v2()
+            self._set_version(2)
+            version = 2
+
+    def _migrate_to_v2(self):
         existing = {
             row["name"]
             for row in self.conn.execute("PRAGMA table_info(scores)").fetchall()
         }
-        for col in ("num_circles", "num_sliders", "num_spinners", "object_weight"):
-            if col not in existing:
-                self.conn.execute(f"ALTER TABLE scores ADD COLUMN {col} INTEGER DEFAULT 0")
+        if "score_key" not in existing:
+            self.conn.execute("ALTER TABLE scores ADD COLUMN score_key TEXT")
 
-    def is_duplicate(self, score: OsuScore, accuracy: float) -> bool:
-        mods_str = self._mods_to_string(score.mods)
-        cur = self.conn.execute(
-            """SELECT COUNT(*) FROM scores
-               WHERE beatmap_md5 = ?
-                 AND mods = ?
-                 AND max_combo = ?
-                 AND ROUND(accuracy, 4) = ROUND(?, 4)
-                 AND ROUND(pp, 1) = ROUND(?, 1)""",
-            (score.beatmap_md5, mods_str, score.max_combo, accuracy, score.pp),
+        rows = self.conn.execute(
+            "SELECT id, beatmap_md5, mods, max_combo, accuracy, pp "
+            "FROM scores WHERE score_key IS NULL OR score_key = ''"
+        ).fetchall()
+        for row in rows:
+            key = make_score_key(
+                row["beatmap_md5"] or "",
+                row["mods"] or "NM",
+                row["max_combo"] or 0,
+                row["accuracy"] or 0.0,
+                row["pp"] or 0.0,
+            )
+            self.conn.execute(
+                "UPDATE scores SET score_key = ? WHERE id = ?", (key, row["id"])
+            )
+
+        self.conn.execute(
+            """DELETE FROM scores WHERE id NOT IN (
+                SELECT MIN(id) FROM scores
+                WHERE score_key IS NOT NULL AND score_key != ''
+                GROUP BY score_key
+            )"""
         )
-        return cur.fetchone()[0] > 0
+
+        self.conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_scores_score_key ON scores(score_key)"
+        )
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_scores_timestamp ON scores(timestamp)"
+        )
+        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_scores_ap ON scores(ap)")
+        self.conn.execute("DROP TABLE IF EXISTS daily_ap")
 
     def insert_score(
         self,
@@ -83,58 +128,34 @@ class Database:
         accuracy: float,
         grade: str,
         ap: float,
+        commit: bool = True,
     ) -> bool:
-        if self.is_duplicate(score, accuracy):
-            return False
-
         total_hits = score.count300 + score.count100 + score.count50 + score.count_miss
         mods_str = self._mods_to_string(score.mods)
         title = f"{meta.artist} - {meta.title} [{meta.difficulty}]"
-        date = datetime.utcfromtimestamp(score.timestamp).strftime("%Y-%m-%d")
+        key = make_score_key(score.beatmap_md5, mods_str, score.max_combo, accuracy, score.pp)
 
-        self.conn.execute(
-            """INSERT INTO scores
+        cur = self.conn.execute(
+            """INSERT OR IGNORE INTO scores
                (beatmap_title, beatmap_md5, score, max_combo,
                 count300, count100, count50, count_miss,
                 accuracy, grade, mods, pp, ap,
                 total_hits, star_rating, length_sec,
                 num_circles, num_sliders, num_spinners, object_weight,
-                timestamp, player_name)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                timestamp, player_name, score_key)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 title, score.beatmap_md5, score.score, score.max_combo,
                 score.count300, score.count100, score.count50, score.count_miss,
                 accuracy, grade, mods_str, score.pp, ap,
                 total_hits, meta.star_rating, meta.length,
                 meta.num_circles, meta.num_sliders, meta.num_spinners, meta.object_weight,
-                score.timestamp, score.player_name,
+                score.timestamp, score.player_name, key,
             ),
         )
-
-        self.conn.commit()
-        return True
-
-    def get_scores_by_date(self, date: str) -> list[sqlite3.Row]:
-        start = datetime.strptime(date, "%Y-%m-%d").timestamp()
-        end = start + 86400
-        cur = self.conn.execute(
-            "SELECT * FROM scores WHERE timestamp >= ? AND timestamp < ? ORDER BY ap DESC",
-            (int(start), int(end)),
-        )
-        return cur.fetchall()
-
-    def get_daily_summary(self) -> list[sqlite3.Row]:
-        cur = self.conn.execute(
-            "SELECT date, total_ap, scores_count, best_score_ap FROM daily_ap ORDER BY date DESC"
-        )
-        return cur.fetchall()
-
-    def get_recent_scores(self, limit: int = 50) -> list[sqlite3.Row]:
-        cur = self.conn.execute(
-            "SELECT * FROM scores ORDER BY timestamp DESC LIMIT ?",
-            (limit,),
-        )
-        return cur.fetchall()
+        if commit:
+            self.conn.commit()
+        return cur.rowcount > 0
 
     def get_all_scores(self) -> list[sqlite3.Row]:
         cur = self.conn.execute(

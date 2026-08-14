@@ -1,15 +1,24 @@
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from server.auth import get_current_user
 from server.database import Score, User, get_session
 
 router = APIRouter(prefix="/api", tags=["api"])
+
+
+def make_score_key(
+    md5: str, mods: str, max_combo: int, accuracy: float, pp: float
+) -> str:
+    payload = f"{md5}|{mods}|{max_combo}|{round(accuracy, 4)}|{round(pp, 1)}"
+    return hashlib.sha1(payload.encode("utf-8")).hexdigest()
 
 
 async def build_profile(session: AsyncSession, user: User) -> dict:
@@ -24,12 +33,14 @@ async def build_profile(session: AsyncSession, user: User) -> dict:
     total_scores = result.scalar() or 0
 
     result = await session.execute(
-        select(Score.played_at, Score.ap).where(Score.user_id == user.id)
+        select(
+            func.date(Score.played_at).label("day"),
+            func.sum(Score.ap).label("total"),
+        )
+        .where(Score.user_id == user.id, Score.played_at.isnot(None))
+        .group_by(func.date(Score.played_at))
     )
-    daily_ap: dict[str, float] = {}
-    for played_at, ap in result.all():
-        day = played_at.date().isoformat() if played_at else "unknown"
-        daily_ap[day] = daily_ap.get(day, 0.0) + (ap or 0.0)
+    daily_ap = {day: float(total) for day, total in result.all()}
     best_ap = max(daily_ap.values(), default=0.0)
 
     goal = user.daily_goal or 0
@@ -98,17 +109,15 @@ async def list_scores(
     offset: int = 0,
     date: str | None = None,
 ) -> list[dict]:
-    result = await session.execute(
-        select(Score).where(Score.user_id == user_id)
-    )
-    scores = result.scalars().all()
-
+    stmt = select(Score).where(Score.user_id == user_id)
     if date:
-        scores = [s for s in scores if (s.played_at or datetime.min).date().isoformat() == date]
-        scores.sort(key=lambda s: s.ap, reverse=True)
+        stmt = stmt.where(
+            func.date(Score.played_at) == date
+        ).order_by(Score.ap.desc())
     else:
-        scores.sort(key=lambda s: s.played_at or datetime.min, reverse=True)
-        scores = scores[offset:offset + limit]
+        stmt = stmt.order_by(Score.played_at.desc()).offset(offset).limit(limit)
+    result = await session.execute(stmt)
+    scores = result.scalars().all()
 
     return [
         {
@@ -133,23 +142,24 @@ async def list_scores(
 
 async def daily_rows(session: AsyncSession, user_id: int) -> list[dict]:
     result = await session.execute(
-        select(Score.played_at, Score.ap).where(Score.user_id == user_id)
-    )
-    daily: dict[str, list[float]] = {}
-    for played_at, ap in result.all():
-        day = played_at.date().isoformat() if played_at else "unknown"
-        daily.setdefault(day, []).append(ap or 0.0)
-
-    rows = []
-    for day, values in daily.items():
-        rows.append(
-            {
-                "date": day,
-                "total_ap": round(sum(values), 2),
-                "scores_count": len(values),
-                "best_score_ap": round(max(values), 2),
-            }
+        select(
+            func.date(Score.played_at).label("day"),
+            func.sum(Score.ap).label("total"),
+            func.count(Score.id).label("cnt"),
+            func.max(Score.ap).label("best"),
         )
+        .where(Score.user_id == user_id, Score.played_at.isnot(None))
+        .group_by(func.date(Score.played_at))
+    )
+    rows = [
+        {
+            "date": day,
+            "total_ap": round(total, 2),
+            "scores_count": cnt,
+            "best_score_ap": round(best, 2),
+        }
+        for day, total, cnt, best in result.all()
+    ]
     rows.sort(key=lambda r: r["date"], reverse=True)
     return rows
 
@@ -190,23 +200,13 @@ async def submit_score(
     score_md5 = str(score_data.get("md5", "") or "")[:64]
     mods = str(score_data.get("mods", "NM"))
     max_combo = int(score_data["max_combo"])
-    acc_r4 = round(float(score_data["accuracy"]), 4)
-    pp_r1 = round(float(score_data["pp"]), 1)
-
-    result = await session.execute(
-        select(Score).where(
-            Score.user_id == current_user.id,
-            Score.md5 == score_md5,
-            Score.mods == mods,
-            Score.max_combo == max_combo,
-        )
+    score_key = make_score_key(
+        score_md5,
+        mods,
+        max_combo,
+        float(score_data["accuracy"]),
+        float(score_data["pp"]),
     )
-    for existing in result.scalars():
-        if (
-            round(existing.accuracy, 4) == acc_r4
-            and round(existing.pp, 1) == pp_r1
-        ):
-            return {"status": "duplicate", "score_id": None}
 
     try:
         played_at = datetime.fromisoformat(score_data["played_at"])
@@ -229,6 +229,7 @@ async def submit_score(
         pp=float(score_data["pp"]),
         ap=float(score_data["ap"]),
         rank=score_data["rank"],
+        score_key=score_key,
         density=float(score_data.get("density", 0.0)),
         aim=float(score_data.get("aim", 0.0)),
         stars=float(score_data.get("stars", 0.0)),
@@ -236,6 +237,11 @@ async def submit_score(
         played_at=played_at,
     )
     session.add(score)
+    try:
+        await session.flush()
+    except IntegrityError:
+        await session.rollback()
+        return {"status": "duplicate", "score_id": None}
     await session.commit()
     await session.refresh(score)
     return {"status": "ok", "score_id": score.id}
@@ -302,19 +308,21 @@ async def get_ap_history(
 ):
     since = datetime.now(timezone.utc) - timedelta(days=days)
     result = await session.execute(
-        select(Score.played_at, Score.ap).where(
+        select(
+            func.date(Score.played_at).label("day"),
+            func.sum(Score.ap).label("total"),
+        )
+        .where(
             Score.user_id == current_user.id,
             Score.played_at >= since,
         )
+        .group_by(func.date(Score.played_at))
     )
-    daily: dict[str, float] = {}
-    for played_at, ap in result.all():
-        day = played_at.date().isoformat() if played_at else "unknown"
-        daily[day] = daily.get(day, 0.0) + (ap or 0.0)
+    daily = {day: round(float(total), 2) for day, total in result.all()}
     items = sorted(daily.items())
     return {
         "labels": [d for d, _ in items],
-        "values": [round(v, 2) for _, v in items],
+        "values": [v for _, v in items],
     }
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import AsyncGenerator
 
 from sqlalchemy import (
@@ -8,6 +9,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -43,10 +45,15 @@ class User(Base):
 
 class Score(Base):
     __tablename__ = "scores"
+    __table_args__ = (
+        Index("uq_scores_user_score_key", "user_id", "score_key", unique=True),
+        Index("idx_scores_played_at", "played_at"),
+        Index("idx_scores_ap", "ap"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("users.id"), nullable=False, index=True
+        Integer, ForeignKey("users.id"), nullable=False
     )
     beatmap_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     beatmap_title: Mapped[str] = mapped_column(String(256), nullable=False)
@@ -61,6 +68,7 @@ class Score(Base):
     pp: Mapped[float] = mapped_column(Float, nullable=False)
     ap: Mapped[float] = mapped_column(Float, nullable=False)
     rank: Mapped[str] = mapped_column(String(8), nullable=False)
+    score_key: Mapped[str] = mapped_column(String(40), nullable=False, default="")
 
     density: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     aim: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
@@ -79,12 +87,20 @@ _engine = None
 _SessionLocal = None
 
 
+def _run_migrations(database_url: str):
+    from alembic import command
+    from alembic.config import Config
+
+    cfg = Config(str(Path(__file__).parent / "alembic.ini"))
+    cfg.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(cfg, "head")
+
+
 async def init_db(config: ServerConfig):
     global _engine, _SessionLocal
     _engine = create_async_engine(config.database_url, echo=False)
     _SessionLocal = async_sessionmaker(_engine, expire_on_commit=False)
-    async with _engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    _run_migrations(config.database_url)
 
 
 async def close_db():
