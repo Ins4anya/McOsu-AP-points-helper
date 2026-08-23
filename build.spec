@@ -1,14 +1,19 @@
 # -*- mode: python ; coding: utf-8 -*-
-# PyInstaller spec for McOsu AP Tracker — onedir + windowed
+# PyInstaller spec for McOsu AP Tracker — onedir + windowed (NiceGUI desktop)
+
+from PyInstaller.utils.hooks import collect_all
+
+nicegui_datas, nicegui_binaries, nicegui_hiddenimports = collect_all('nicegui')
+pywebview_datas, pywebview_binaries, pywebview_hiddenimports = collect_all('webview')
 
 a = Analysis(
     ['launcher.py'],
     pathex=[],
-    binaries=[],
+    binaries=nicegui_binaries + pywebview_binaries,
     datas=[
         ('web/static', 'web/static'),
         ('Ranks.txt', '.'),
-    ],
+    ] + nicegui_datas + pywebview_datas,
     hiddenimports=[
         'rosu_pp_py',
         'discord',
@@ -22,12 +27,17 @@ a = Analysis(
         'uvicorn.protocols.http.auto',
         'uvicorn.protocols.websockets.auto',
         'mcsu_bot.db_reader',
+        'mcsu_bot.server_client',
+        'mcsu_gui.app',
+        'mcsu_gui.tabs.control',
+        'mcsu_gui.tabs.last_score',
+        'mcsu_gui.tabs.ap_breakdown',
+        # legacy fallback (kept)
         'mcsu_bot_gui.workers.process_worker',
         'mcsu_bot_gui.tabs.control_tab',
         'mcsu_bot_gui.tabs.last_score_tab',
         'mcsu_bot_gui.tabs.ap_breakdown_tab',
-        'mcsu_bot.server_client',
-    ],
+    ] + nicegui_hiddenimports + pywebview_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

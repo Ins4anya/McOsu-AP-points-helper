@@ -35,6 +35,47 @@ function formatNum(n) {
     return n.toLocaleString('ru-RU');
 }
 
+const REGION_FLAGS = {
+    "komi": ["Komi Republic", "Flag_of_Komi.svg"],
+    "tatarstan": ["Tatarstan", "Flag_of_Tatarstan.svg"],
+    "bashkortostan": ["Bashkortostan", "Flag_of_Bashkortostan.svg"],
+    "dagestan": ["Dagestan", "Flag_of_Dagestan.svg"],
+    "chechnya": ["Chechnya", "Flag_of_Chechnya.svg"],
+    "adygea": ["Adygea", "Flag_of_Adygea.svg"],
+    "altai-republic": ["Altai Republic", "Flag_of_Altai_Republic.svg"],
+    "buryatia": ["Buryatia", "Flag_of_Buryatia.svg"],
+    "ingushetia": ["Ingushetia", "Flag_of_Ingushetia.svg"],
+    "kabardino-balkaria": ["Kabardino-Balkaria", "Flag_of_Kabardino-Balkaria.svg"],
+    "kalmykia": ["Kalmykia", "Flag_of_Kalmykia.svg"],
+    "karachay-cherkessia": ["Karachay-Cherkessia", "Flag_of_Karachay-Cherkessia.svg"],
+    "karelia": ["Karelia", "Flag_of_Karelia.svg"],
+    "mari-el": ["Mari El", "Flag_of_Mari_El.svg"],
+    "mordovia": ["Mordovia", "Flag_of_Mordovia.svg"],
+    "sakha": ["Sakha (Yakutia)", "Flag_of_Sakha.svg"],
+    "north-ossetia": ["North Ossetia", "Flag_of_North_Ossetia.svg"],
+    "tuva": ["Tuva", "Flag_of_Tuva.svg"],
+    "udmurtia": ["Udmurtia", "Flag_of_Udmurtia.svg"],
+    "khakassia": ["Khakassia", "Flag_of_Khakassia.svg"],
+    "chuvashia": ["Chuvashia", "Flag_of_Chuvashia.svg"],
+    "moscow": ["Moscow", "Flag_of_Moscow.svg"],
+    "saint-petersburg": ["Saint Petersburg", "Flag_of_Saint_Petersburg.svg"],
+};
+
+function flagSrc(code, width) {
+    code = String(code || "").toLowerCase();
+    if (!code) return "";
+    const region = REGION_FLAGS[code];
+    if (region) return `https://commons.wikimedia.org/wiki/Special:Redirect/file/${region[1]}?width=${Math.round(width)}`;
+    if (code.length === 2) return `https://flagcdn.com/w${Math.round(width)}/${code}.png`;
+    return "";
+}
+
+function flagImg(code, width) {
+    const src = flagSrc(code, width);
+    if (!src) return "";
+    return `<img class="flag-img flag-sm" src="${src}" alt="" loading="lazy" onerror="this.style.display='none'">`;
+}
+
 async function loadPlayers() {
     let players = [];
     try {
@@ -58,7 +99,7 @@ async function loadPlayers() {
                 <a class="player-link" href="/player/${p.osu_id}">
                     <img src="${escapeHtml(p.avatar_url)}" alt="" class="player-avatar"
                          onerror="this.style.visibility='hidden'">
-                    <span class="player-name">${escapeHtml(p.username)}</span>
+                    <span class="player-name">${flagImg(p.flag, 20)} ${escapeHtml(p.username)}</span>
                 </a>
             </td>
             <td class="col-num player-games">${formatNum(p.games)}</td>

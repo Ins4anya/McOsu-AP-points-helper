@@ -10,6 +10,7 @@ scores_server.db
 # Build artifacts
 build/
 dist/
+*.spec
 
 # Cache
 cache/
@@ -29,3 +30,6 @@ McOsuTracker_v0.2.zip
 # Server
 .env
 server_token.json
+
+# User-uploaded banners
+server/static/uploads/

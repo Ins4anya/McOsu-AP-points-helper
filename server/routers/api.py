@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import hashlib
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from server.auth import get_current_user
+from server.auth import get_current_user, lookup_beatmap_by_md5
+from server.config import ServerConfig
 from server.database import Score, User, get_session
 
 router = APIRouter(prefix="/api", tags=["api"])
@@ -19,6 +21,29 @@ def make_score_key(
 ) -> str:
     payload = f"{md5}|{mods}|{max_combo}|{round(accuracy, 4)}|{round(pp, 1)}"
     return hashlib.sha1(payload.encode("utf-8")).hexdigest()
+
+BANNER_DIR = Path(__file__).resolve().parent.parent / "static" / "uploads"
+BANNER_DIR.mkdir(parents=True, exist_ok=True)
+
+MAX_BANNER_BYTES = 10 * 1024 * 1024
+
+
+def sniff_image_ext(data: bytes) -> str | None:
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return "jpg"
+    if data.startswith(b"GIF87a") or data.startswith(b"GIF89a"):
+        return "gif"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "webp"
+    return None
+
+
+def banner_url(user_id: int) -> str | None:
+    for f in sorted(BANNER_DIR.glob(f"banner_{user_id}.*")):
+        return f"/static/uploads/{f.name}?t={int(f.stat().st_mtime)}"
+    return None
 
 
 async def build_profile(session: AsyncSession, user: User) -> dict:
@@ -45,6 +70,11 @@ async def build_profile(session: AsyncSession, user: User) -> dict:
 
     goal = user.daily_goal or 0
     goals_done = sum(1 for v in daily_ap.values() if v >= goal) if goal > 0 else 0
+
+    onfire_goal = user.onfire_goal or 0
+    onfire_done = (
+        sum(1 for v in daily_ap.values() if v >= onfire_goal) if onfire_goal > 0 else 0
+    )
 
     result = await session.execute(
         select(Score.source, func.count(Score.id))
@@ -74,7 +104,14 @@ async def build_profile(session: AsyncSession, user: User) -> dict:
     )
     top_scores = [
         {
+            "beatmap_id": s.beatmap_id,
             "beatmap_title": s.beatmap_title,
+            "beatmap_url": s.beatmap_url
+            or (
+                f"https://osu.ppy.sh/beatmaps/{s.beatmap_id}"
+                if s.beatmap_id and s.beatmap_id > 0
+                else ""
+            ),
             "accuracy": s.accuracy,
             "grade": s.rank,
             "mods": s.mods,
@@ -96,18 +133,53 @@ async def build_profile(session: AsyncSession, user: User) -> dict:
         for s in result.scalars().all()
     ]
 
+    result = await session.execute(
+        select(
+            Score.beatmap_title,
+            func.count(Score.id).label("plays"),
+            func.max(Score.beatmap_url),
+            func.max(Score.beatmap_id),
+            func.max(Score.stars),
+            func.sum(Score.ap),
+        )
+        .where(Score.user_id == user.id)
+        .group_by(Score.beatmap_title)
+        .order_by(func.count(Score.id).desc())
+    )
+    most_played = [
+        {
+            "beatmap_title": title,
+            "beatmap_url": url
+            or (
+                f"https://osu.ppy.sh/beatmaps/{beatmap_id}"
+                if beatmap_id and beatmap_id > 0
+                else ""
+            ),
+            "beatmap_id": beatmap_id or 0,
+            "plays": plays,
+            "stars": stars or 0.0,
+            "total_ap": round(total_ap, 2),
+        }
+        for title, plays, url, beatmap_id, stars, total_ap in result.all()
+    ]
+
     return {
         "osu_id": user.osu_id,
         "username": user.username,
         "avatar_url": user.avatar_url,
+        "banner_url": banner_url(user.id),
+        "flag": user.flag or "",
         "total_ap": round(total_ap, 2),
         "best_ap": round(best_ap, 2),
         "games": total_scores,
         "daily_goal": goal,
         "goals_done": goals_done,
+        "onfire_goal": onfire_goal,
+        "onfire_done": onfire_done,
         "source_counts": source_counts,
         "grades": grades,
         "top_scores": top_scores,
+        "most_played": most_played,
     }
 
 
@@ -195,6 +267,7 @@ async def get_user_by_osu_id(
 async def submit_score(
     score_data: dict,
     session: AsyncSession = Depends(get_session),
+    config: ServerConfig = Depends(ServerConfig.from_env),
     current_user: User = Depends(get_current_user),
 ):
     required = [
@@ -216,6 +289,8 @@ async def submit_score(
 
     score_md5 = str(score_data.get("md5", "") or "")[:64]
     mods = str(score_data.get("mods", "NM"))
+    source = str(score_data.get("source", "mcsu"))[:16]
+    beatmap_url = str(score_data.get("beatmap_url", "") or "")
     max_combo = int(score_data["max_combo"])
     score_key = make_score_key(
         score_md5,
@@ -236,10 +311,10 @@ async def submit_score(
         user_id=current_user.id,
         beatmap_id=int(score_data["beatmap_id"]),
         beatmap_title=score_data["beatmap_title"],
-        beatmap_url=score_data["beatmap_url"],
+        beatmap_url=beatmap_url,
         md5=score_md5,
         mods=mods,
-        source=str(score_data.get("source", "mcsu"))[:16],
+        source=source,
         accuracy=float(score_data["accuracy"]),
         max_combo=int(score_data["max_combo"]),
         max_possible_combo=int(score_data["max_possible_combo"]),
@@ -258,6 +333,21 @@ async def submit_score(
         eff_hp=float(score_data.get("eff_hp", 0.0)),
         played_at=played_at,
     )
+
+    if source == "mcsu" and not beatmap_url and score_md5:
+        try:
+            meta = await lookup_beatmap_by_md5(config, score_md5)
+            if meta:
+                score.beatmap_url = meta["map_url"]
+                if int(score.beatmap_id) <= 0 and meta.get("beatmap_id"):
+                    score.beatmap_id = int(meta["beatmap_id"])
+                if not score_data.get("beatmap_title"):
+                    score.beatmap_title = meta["title"]
+                if not score_data.get("stars"):
+                    score.stars = float(meta.get("stars") or 0.0)
+        except Exception:
+            pass
+
     session.add(score)
     try:
         await session.flush()
@@ -281,7 +371,10 @@ async def get_profile(
 async def get_goal(
     current_user: User = Depends(get_current_user),
 ):
-    return {"daily_goal": current_user.daily_goal or 0}
+    return {
+        "daily_goal": current_user.daily_goal or 0,
+        "onfire_goal": current_user.onfire_goal or 0,
+    }
 
 
 @router.post("/me/goal")
@@ -296,9 +389,85 @@ async def set_goal(
         raise HTTPException(status_code=400, detail="goal must be an integer")
     if goal < 0:
         raise HTTPException(status_code=400, detail="goal cannot be negative")
+
+    onfire_goal = current_user.onfire_goal or 0
+    if "onfire_goal" in goal_data:
+        try:
+            onfire_goal = int(goal_data.get("onfire_goal", 0))
+        except (ValueError, TypeError):
+            raise HTTPException(
+                status_code=400, detail="onfire_goal must be an integer"
+            )
+        if onfire_goal < 0:
+            raise HTTPException(
+                status_code=400, detail="onfire_goal cannot be negative"
+            )
+
+    if onfire_goal > 0 and goal > 0 and onfire_goal < goal:
+        raise HTTPException(
+            status_code=400,
+            detail="onfire_goal cannot be less than daily_goal",
+        )
+
     current_user.daily_goal = goal
+    current_user.onfire_goal = onfire_goal
     await session.commit()
-    return {"daily_goal": current_user.daily_goal} 
+    return {
+        "daily_goal": current_user.daily_goal,
+        "onfire_goal": current_user.onfire_goal,
+    }
+
+
+@router.post("/me/flag")
+async def set_flag(
+    flag_data: dict,
+    session: AsyncSession = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+):
+    flag = str(flag_data.get("flag", "")).strip()
+    if flag:
+        if len(flag) > 32 or not flag.isalnum():
+            raise HTTPException(
+                status_code=400,
+                detail="flag must be an ISO 3166-1 alpha-2 code or a short region slug",
+            )
+        flag = flag.lower()
+    current_user.flag = flag
+    await session.commit()
+    return {"flag": current_user.flag}
+
+
+@router.post("/me/banner")
+async def upload_banner(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty file")
+    if len(data) > MAX_BANNER_BYTES:
+        raise HTTPException(status_code=413, detail="File too large (max 10 MB)")
+    ext = sniff_image_ext(data)
+    if ext is None:
+        raise HTTPException(status_code=400, detail="Unsupported image type (png/jpg/gif/webp)")
+
+    for old in BANNER_DIR.glob(f"banner_{current_user.id}.*"):
+        old.unlink(missing_ok=True)
+
+    dest = BANNER_DIR / f"banner_{current_user.id}.{ext}"
+    dest.write_bytes(data)
+    return {"url": banner_url(current_user.id)}
+
+
+@router.delete("/me/banner")
+async def delete_banner(
+    current_user: User = Depends(get_current_user),
+):
+    removed = False
+    for old in BANNER_DIR.glob(f"banner_{current_user.id}.*"):
+        old.unlink(missing_ok=True)
+        removed = True
+    return {"ok": removed}
 
 
 @router.get("/me/scores")
@@ -358,12 +527,13 @@ async def list_players(
             User.osu_id,
             User.username,
             User.avatar_url,
+            User.flag,
             total_ap_expr.label("total_ap"),
             func.count(Score.id).label("games"),
         )
         .select_from(User)
         .outerjoin(Score, Score.user_id == User.id)
-        .group_by(User.id, User.osu_id, User.username, User.avatar_url)
+        .group_by(User.id, User.osu_id, User.username, User.avatar_url, User.flag)
         .order_by(total_ap_expr.desc())
     )
     return [
@@ -371,10 +541,11 @@ async def list_players(
             "osu_id": osu_id,
             "username": username,
             "avatar_url": avatar_url,
+            "flag": flag or "",
             "total_ap": round(total_ap, 2),
             "games": games,
         }
-        for osu_id, username, avatar_url, total_ap, games in result.all()
+        for osu_id, username, avatar_url, flag, total_ap, games in result.all()
     ]
 
 

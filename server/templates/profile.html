@@ -2,16 +2,29 @@
 {% block title %}{% if viewing_other %}Player — McOsu AP Tracker{% else %}Profile — McOsu AP Tracker{% endif %}{% endblock %}
 {% block content %}
 <div id="profile">
-    <div class="profile-banner"></div>
+    <div class="profile-banner" id="profileBanner">
+        {% if not viewing_other %}
+        <div class="banner-actions">
+            <button class="btn btn-sm banner-btn" id="uploadBannerBtn" title="Upload banner">🖼 Edit banner</button>
+            <button class="btn btn-sm banner-btn" id="removeBannerBtn" title="Remove banner" style="display:none">✕</button>
+        </div>
+        {% endif %}
+    </div>
     <div class="profile-header">
         <img id="avatar" src="" alt="avatar" class="avatar">
         <div class="profile-info">
-            <h2 id="username">Loading...</h2>
+            <h2><span class="flag-emoji" id="userFlag"></span><span id="username">Loading...</span></h2>
             <div class="profile-actions">
                 {% if viewing_other %}
                 <a href="/players" class="btn btn-sm btn-ghost">← Players</a>
                 {% else %}
                 <button class="btn btn-sm" id="copyTokenBtn">Copy token</button>
+                <label class="flag-picker">Flag
+                    <select id="flagSelect">
+                        <option value="">—</option>
+                    </select>
+                    <span class="flag-preview" id="flagPreview"></span>
+                </label>
                 <a href="/auth/logout" class="btn btn-sm btn-ghost" id="logoutBtn">Logout</a>
                 {% endif %}
             </div>
@@ -43,7 +56,10 @@
             <label for="goalInput">🎯 Daily AP goal:</label>
             <input type="number" id="goalInput" min="0" placeholder="0">
             <button class="btn btn-sm" id="goalSetBtn">Set</button>
-            <span class="goal-status" id="goalStatus"></span>
+            <span class="goal-sep"></span>
+            <label for="onfireInput">🔥 OnFire:</label>
+            <input type="number" id="onfireInput" min="0" placeholder="0">
+            <button class="btn btn-sm" id="onfireSetBtn">Set</button>
         </div>
     </div>
     {% endif %}
@@ -60,9 +76,14 @@
             <input type="date" id="dailyDate">
             <span class="daily-summary" id="dailySummary"></span>
             <span class="daily-goal-status" id="dailyGoalStatus"></span>
+            <span class="streak-badge" id="streakBadge" style="display:none"></span>
         </div>
         <div class="chart-wrap">
             <canvas id="dailyChart"></canvas>
+        </div>
+        <div class="goal-progress" id="goalProgress" style="display:none">
+            <div class="goal-progress-fill" id="goalProgressFill"></div>
+            <span class="goal-progress-label" id="goalProgressLabel"></span>
         </div>
         <p class="empty" id="dailyEmpty" style="display:none">No scores for this day</p>
         <div class="daily-grades" id="dailyGrades" style="display:none"></div>
@@ -71,6 +92,7 @@
                 <thead>
                     <tr>
                         <th>Map</th>
+                        <th>★</th>
                         <th>Acc</th>
                         <th>Grade</th>
                         <th>Mods</th>
@@ -92,6 +114,7 @@
                 <thead>
                     <tr>
                         <th>Map</th>
+                        <th>★</th>
                         <th>Acc</th>
                         <th>Grade</th>
                         <th>Mods</th>
@@ -105,28 +128,239 @@
         </div>
         <p class="empty" id="topEmpty">No scores yet — sync your first score from the desktop app!</p>
     </div>
+
+    <div class="card" id="mostPlayedCard" style="display:none">
+        <h3>Most Played</h3>
+        <div class="table-wrap">
+            <table id="playedTable">
+                <thead>
+                    <tr>
+                        <th>Map</th>
+                        <th>★</th>
+                        <th>Plays</th>
+                        <th class="col-num">Total AP</th>
+                    </tr>
+                </thead>
+                <tbody id="mostPlayedBody"></tbody>
+            </table>
+        </div>
+        <button class="btn btn-sm btn-ghost played-more" id="mostPlayedMore" style="display:none">More</button>
+    </div>
 </div>
+
+{% if not viewing_other %}
+<input type="file" id="bannerFileInput" accept="image/*" style="display:none">
+<div class="modal-overlay" id="cropModal" style="display:none">
+    <div class="modal">
+        <h3>Select banner area</h3>
+        <p class="modal-hint">The banner is wide — drag the frame to choose the part to show.</p>
+        <div class="crop-wrap">
+            <img id="cropImage" alt="Banner preview">
+        </div>
+        <div class="modal-actions">
+            <button class="btn btn-sm btn-ghost" id="cropCancelBtn">Cancel</button>
+            <button class="btn btn-sm" id="cropSaveBtn">Save banner</button>
+        </div>
+    </div>
+</div>
+{% endif %}
 
 <script>
 const TOKEN = "{{ token }}";
 const VIEWING_OTHER = {{ 'true' if viewing_other else 'false' }};
 const PLAYER_OSU_ID = {{ osu_id if osu_id else 0 }};
 const GRADE_COLORS = {
-    'XH': '#ffd700', 'X': '#ffd700', 'SH': '#ff69b4', 'S': '#ff69b4',
-    'A': '#00ff7f', 'B': '#1e90ff', 'C': '#ff4500', 'D': '#ff0000',
+    'XH': '#d6dae2', 'X': '#ffd700', 'SH': '#d6dae2', 'S': '#ffd700',
+    'A': '#00ff7f', 'B': '#1e90ff', 'C': '#a36cf5', 'D': '#ff0000',
 };
-const GRADE_ORDER = ['XH', 'X', 'SH', 'S', 'A', 'B', 'C', 'D'];
+const GRADE_ORDER = ['XH', 'SH', 'X', 'S', 'A', 'B', 'C', 'D'];
+const RANK_LABELS = { 'XH': 'SS', 'SH': 'S', 'X': 'SS', 'S': 'S' };
 let dailyGoal = 0;
+let onfireGoal = 0;
 let dailyChart = null;
 let dailyData = [];
+let dailyByDate = {};
 
 function truncateTitle(title, maxLen = 55) {
     return title.length > maxLen ? title.slice(0, maxLen) + '...' : title;
 }
 
+function beatmapHref(s) {
+    if (s.beatmap_url) return s.beatmap_url;
+    if (s.beatmap_id && s.beatmap_id > 0) return `https://osu.ppy.sh/beatmaps/${s.beatmap_id}`;
+    return null;
+}
+
+function titleCell(s) {
+    const href = beatmapHref(s);
+    if (href) {
+        return `<a class="map-link" href="${href}" target="_blank" rel="noopener noreferrer" title="${s.beatmap_title}">${truncateTitle(s.beatmap_title)}</a>`;
+    }
+    return truncateTitle(s.beatmap_title);
+}
+
+function starsCell(s) {
+    return s.stars ? s.stars.toFixed(2) : '—';
+}
+
+function beatmapThumbUrl(s) {
+    if (!s.beatmap_url) return null;
+    const m = s.beatmap_url.match(/beatmapsets\/(\d+)/);
+    if (!m) return null;
+    return `https://assets.ppy.sh/beatmaps/${m[1]}/covers/card@2x.jpg`;
+}
+
+function thumbHtml(s) {
+    const u = beatmapThumbUrl(s);
+    if (!u) return '';
+    return `<img class="map-thumb" src="${u}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'">`;
+}
+
+const MOD_COLORS = {
+    'HD': '#ff69b4', 'HR': '#ff8c00', 'DT': '#4A9BE8', 'NC': '#a36cf5',
+    'HT': '#e6edf5', 'EZ': '#00e0a0', 'NF': '#8b9cb4', 'FL': '#ffd700',
+    'SO': '#8b9cb4', 'SD': '#8b9cb4', 'PF': '#ffd700', 'FI': '#66ff99',
+    'RX': '#66ff99', '4K': '#8b9cb4', '5K': '#8b9cb4', '6K': '#8b9cb4',
+    '7K': '#8b9cb4',
+};
+
+function modsCell(mods) {
+    const raw = String(mods || '').replace(/^\+/, '');
+    if (!raw || raw === 'NM') return '<span style="color:#8b9cb4">NM</span>';
+    const m = raw.match(/^([A-Z]+)?(?:\s*(.+))?$/);
+    if (!m) return raw;
+    let html = '';
+    if (m[1]) {
+        html += (m[1].match(/[A-Z]{2}/g) || []).map(mm => {
+            const c = MOD_COLORS[mm] || '#8b9cb4';
+            return `<span class="mod-badge" style="color:${c}">${mm}</span>`;
+        }).join('');
+    }
+    if (m[2]) html += `<span style="color:#8b9cb4">${m[2]}</span>`;
+    return html;
+}
+
+function animateCount(el, target, fmt = v => v) {
+    const dur = 700;
+    const from = 0;
+    const start = performance.now();
+    function step(t) {
+        const p = Math.min((t - start) / dur, 1);
+        const eased = 1 - Math.pow(1 - p, 3);
+        el.textContent = fmt(from + (target - from) * eased);
+        if (p < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+}
+
+function computeStreak(dailyData, goal) {
+    if (goal <= 0 || !dailyData || !dailyData.length) return 0;
+    const met = new Set(dailyData.filter(d => d.total_ap >= goal).map(d => d.date));
+    const dayMs = 86400000;
+    const dayStr = n => new Date(Date.now() - dayMs * n).toISOString().slice(0, 10);
+    let cursor = dayStr(0);
+    if (!met.has(cursor)) {
+        if (!met.has(dayStr(1))) return 0;
+    }
+    let streak = 0;
+    while (met.has(cursor)) {
+        streak++;
+        cursor = dayStr(streak);
+    }
+    return streak;
+}
+
 function formatNum(n) {
     if (typeof n !== 'number') return n;
     return n.toLocaleString('ru-RU');
+}
+
+const FLAGS = [
+    ["", "No flag"], ["ru", "Russia"], ["ua", "Ukraine"], ["by", "Belarus"],
+    ["kz", "Kazakhstan"], ["us", "USA"], ["gb", "United Kingdom"], ["de", "Germany"],
+    ["fr", "France"], ["pl", "Poland"], ["md", "Moldova"], ["uz", "Uzbekistan"],
+    ["tr", "Turkey"], ["lt", "Lithuania"], ["lv", "Latvia"], ["ee", "Estonia"],
+    ["am", "Armenia"], ["az", "Azerbaijan"], ["ge", "Georgia"], ["rs", "Serbia"],
+    ["cz", "Czechia"], ["fi", "Finland"], ["se", "Sweden"], ["no", "Norway"],
+    ["dk", "Denmark"], ["nl", "Netherlands"], ["be", "Belgium"], ["ch", "Switzerland"],
+    ["at", "Austria"], ["es", "Spain"], ["it", "Italy"], ["pt", "Portugal"],
+    ["jp", "Japan"], ["kr", "South Korea"], ["cn", "China"], ["br", "Brazil"],
+    ["ar", "Argentina"], ["ca", "Canada"], ["au", "Australia"], ["in", "India"],
+    ["id", "Indonesia"], ["vn", "Vietnam"], ["th", "Thailand"], ["mx", "Mexico"],
+];
+
+const REGION_FLAGS = {
+    "komi": ["Komi Republic", "Flag_of_Komi.svg"],
+    "tatarstan": ["Tatarstan", "Flag_of_Tatarstan.svg"],
+    "bashkortostan": ["Bashkortostan", "Flag_of_Bashkortostan.svg"],
+    "dagestan": ["Dagestan", "Flag_of_Dagestan.svg"],
+    "chechnya": ["Chechnya", "Flag_of_Chechnya.svg"],
+    "adygea": ["Adygea", "Flag_of_Adygea.svg"],
+    "altai-republic": ["Altai Republic", "Flag_of_Altai_Republic.svg"],
+    "buryatia": ["Buryatia", "Flag_of_Buryatia.svg"],
+    "ingushetia": ["Ingushetia", "Flag_of_Ingushetia.svg"],
+    "kabardino-balkaria": ["Kabardino-Balkaria", "Flag_of_Kabardino-Balkaria.svg"],
+    "kalmykia": ["Kalmykia", "Flag_of_Kalmykia.svg"],
+    "karachay-cherkessia": ["Karachay-Cherkessia", "Flag_of_Karachay-Cherkessia.svg"],
+    "karelia": ["Karelia", "Flag_of_Karelia.svg"],
+    "mari-el": ["Mari El", "Flag_of_Mari_El.svg"],
+    "mordovia": ["Mordovia", "Flag_of_Mordovia.svg"],
+    "sakha": ["Sakha (Yakutia)", "Flag_of_Sakha.svg"],
+    "north-ossetia": ["North Ossetia", "Flag_of_North_Ossetia.svg"],
+    "tuva": ["Tuva", "Flag_of_Tuva.svg"],
+    "udmurtia": ["Udmurtia", "Flag_of_Udmurtia.svg"],
+    "khakassia": ["Khakassia", "Flag_of_Khakassia.svg"],
+    "chuvashia": ["Chuvashia", "Flag_of_Chuvashia.svg"],
+    "moscow": ["Moscow", "Flag_of_Moscow.svg"],
+    "saint-petersburg": ["Saint Petersburg", "Flag_of_Saint_Petersburg.svg"],
+};
+
+function flagSrc(code, width) {
+    code = String(code || "").toLowerCase();
+    if (!code) return "";
+    const region = REGION_FLAGS[code];
+    if (region) return `https://commons.wikimedia.org/wiki/Special:Redirect/file/${region[1]}?width=${Math.round(width)}`;
+    if (code.length === 2) return `https://flagcdn.com/w${Math.round(width)}/${code}.png`;
+    return "";
+}
+
+function flagImg(code, width) {
+    const src = flagSrc(code, width);
+    if (!src) return "";
+    return `<img class="flag-img" src="${src}" alt="" loading="lazy" onerror="this.style.display='none'">`;
+}
+
+function initFlagPicker() {
+    const sel = document.getElementById("flagSelect");
+    if (!sel) return;
+    const countries = FLAGS.map(([code, name]) =>
+        `<option value="${code}">${name}</option>`
+    ).join("");
+    const regions = Object.entries(REGION_FLAGS).map(([slug, [name]]) =>
+        `<option value="${slug}">${name}</option>`
+    ).join("");
+    sel.innerHTML = countries + `<optgroup label="Russia — regions">${regions}</optgroup>`;
+    sel.addEventListener("change", async () => {
+        try {
+            const res = await api("/api/me/flag", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ flag: sel.value }),
+            });
+            applyFlag(res.flag);
+        } catch (e) {
+            alert("Failed to save flag");
+        }
+    });
+}
+
+function applyFlag(code) {
+    const flagEl = document.getElementById("userFlag");
+    if (flagEl) flagEl.innerHTML = flagImg(code, 40);
+    const sel = document.getElementById("flagSelect");
+    if (sel) sel.value = String(code || "").toLowerCase();
+    const prev = document.getElementById("flagPreview");
+    if (prev) prev.innerHTML = flagImg(code, 40);
 }
 
 async function api(url, opts = {}) {
@@ -150,20 +384,34 @@ async function loadProfile() {
         const data = await api("/api/me/profile");
         document.getElementById("avatar").src = data.avatar_url;
         document.getElementById("username").textContent = data.username;
+        applyBanner(data.banner_url);
+        applyFlag(data.flag);
 
         const stats = [
-            { label: "Total AP", value: formatNum(data.total_ap) },
-            { label: "Best AP", value: formatNum(data.best_ap) },
-            { label: "Games", value: formatNum(data.games) },
-            { label: "Goals done", value: formatNum(data.goals_done) },
+            { label: "Total AP", value: data.total_ap },
+            { label: "Best AP", value: data.best_ap },
+            { label: "Games", value: data.games },
         ];
         const grid = document.getElementById("statsGrid");
         grid.innerHTML = stats.map(s => `
-            <div class="stat-card">
+            <div class="stat-card" data-anim="0">
                 <span class="stat-label">${s.label}</span>
-                <span class="stat-value">${s.value}</span>
+                <span class="stat-value">${formatNum(s.value)}</span>
             </div>
-        `).join("");
+        `).join("") + `
+            <div class="stat-card goal-stats" data-anim="0">
+                <span class="stat-label">Goals / onFire Done</span>
+                <div class="goal-stats-values">
+                    <span class="goal-stats-item goal-stats-daily"><span class="goal-stats-num" data-goal-done>0</span> Goals</span>
+                    <span class="goal-stats-item goal-stats-onfire"><span class="goal-stats-num" data-onfire-done>0</span> OnFire</span>
+                </div>
+            </div>
+        `;
+        grid.querySelectorAll(".stat-card:not(.goal-stats) .stat-value").forEach((el, i) => {
+            animateCount(el, stats[i].value, v => Math.round(v).toLocaleString('ru-RU'));
+        });
+        animateCount(grid.querySelector("[data-goal-done]"), data.goals_done || 0, v => Math.round(v).toLocaleString('ru-RU'));
+        animateCount(grid.querySelector("[data-onfire-done]"), data.onfire_done || 0, v => Math.round(v).toLocaleString('ru-RU'));
 
         const sc = data.source_counts || {};
         document.getElementById("mcsu-count").textContent = sc.mcsu || 0;
@@ -171,9 +419,12 @@ async function loadProfile() {
         document.getElementById("sourceRow").style.display = "flex";
 
         dailyGoal = data.daily_goal || 0;
+        onfireGoal = data.onfire_goal || 0;
         if (!VIEWING_OTHER) {
             document.getElementById("goalInput").value = dailyGoal;
             updateGoalStatus(dailyGoal);
+            document.getElementById("onfireInput").value = onfireGoal;
+            updateOnfireStatus(onfireGoal);
             document.getElementById("goalCard").style.display = "block";
         }
         initDaily();
@@ -181,7 +432,7 @@ async function loadProfile() {
         const gradesRow = document.getElementById("gradesRow");
         gradesRow.innerHTML = GRADE_ORDER.map(g => `
             <div class="grade-badge" style="border-color:${GRADE_COLORS[g]}">
-                <span class="gl" style="color:${GRADE_COLORS[g]}">${g}</span>
+                <span class="gl" style="color:${GRADE_COLORS[g]}">${RANK_LABELS[g] || g}</span>
                 <span class="gc">${data.grades[g] || 0}</span>
             </div>
         `).join("");
@@ -196,15 +447,37 @@ async function loadProfile() {
             empty.style.display = "none";
             tbody.innerHTML = data.top_scores.map(s => `
                 <tr>
-                    <td class="title" title="${s.beatmap_title}">${truncateTitle(s.beatmap_title)}</td>
+                    <td class="title" title="${s.beatmap_title}">${thumbHtml(s)}${titleCell(s)}</td>
+                    <td class="stars">${starsCell(s)}</td>
                     <td>${(s.accuracy * 100).toFixed(2)}%</td>
                     <td class="grade" style="color:${GRADE_COLORS[s.grade] || '#fff'}">${s.grade}</td>
-                    <td>${s.mods || 'NM'}</td>
+                    <td>${modsCell(s.mods)}</td>
                     <td>x${s.max_combo}</td>
                     <td class="pp">${s.pp ? s.pp.toFixed(1) : '-'}</td>
                     <td class="ap">${Math.floor(s.ap)} AP</td>
                 </tr>
             `).join("");
+        }
+
+        const playedCard = document.getElementById("mostPlayedCard");
+        const playedBody = document.getElementById("mostPlayedBody");
+        const playedMore = document.getElementById("mostPlayedMore");
+        if (data.most_played && data.most_played.length) {
+            const PLAYED_LIMIT = 10;
+            const renderPlayed = (count) => {
+                playedBody.innerHTML = data.most_played.slice(0, count).map(m => `
+                    <tr>
+                        <td class="title" title="${m.beatmap_title}">${thumbHtml(m)}${titleCell(m)}</td>
+                        <td class="stars">${starsCell(m)}</td>
+                        <td><span class="played-count">×${m.plays}</span></td>
+                        <td class="col-num played-ap">${Math.floor(m.total_ap)} AP</td>
+                    </tr>
+                `).join("");
+                playedMore.style.display = count < data.most_played.length ? "inline-block" : "none";
+            };
+            renderPlayed(PLAYED_LIMIT);
+            playedMore.addEventListener("click", () => renderPlayed(data.most_played.length));
+            playedCard.style.display = "block";
         }
     } catch (e) {
         document.getElementById("username").textContent = "Error loading profile";
@@ -212,9 +485,15 @@ async function loadProfile() {
 }
 
 function updateGoalStatus(goal) {
-    const el = document.getElementById("goalStatus");
-    el.textContent = goal > 0 ? `Target: ${goal} AP/day` : "No goal set";
-    el.className = "goal-status" + (goal > 0 ? " set" : "");
+    const input = document.getElementById("goalInput");
+    input.classList.toggle("goal-set", goal > 0);
+    input.style.color = goal > 0 ? "var(--orange)" : "";
+}
+
+function updateOnfireStatus(goal) {
+    const input = document.getElementById("onfireInput");
+    input.classList.toggle("goal-set", goal > 0);
+    input.style.color = goal > 0 ? "var(--purple)" : "";
 }
 
 function initDaily() {
@@ -224,11 +503,86 @@ function initDaily() {
     loadDaily(today);
 }
 
+const goalLinePlugin = {
+    id: 'goalLine',
+    afterDatasetsDraw(chart) {
+        const y = chart.scales.y;
+        const area = chart.chartArea;
+        if (!area) return;
+        const ctx = chart.ctx;
+        const drawLine = (value, color, label) => {
+            if (!value) return;
+            let py = y.getPixelForValue(value);
+            py = Math.max(area.top + 2, Math.min(area.bottom - 2, py));
+            ctx.save();
+            ctx.strokeStyle = color;
+            ctx.setLineDash([6, 4]);
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(area.left, py);
+            ctx.lineTo(area.right, py);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.font = '10px JetBrains Mono';
+            ctx.fillStyle = color;
+            ctx.textAlign = 'right';
+            ctx.fillText(label, area.right - 4, py - 5);
+            ctx.restore();
+        };
+        drawLine(dailyGoal, 'rgba(255, 170, 0, 0.9)', 'goal');
+        drawLine(onfireGoal, 'rgba(163, 108, 245, 0.95)', 'onfire');
+    },
+};
+Chart.register(goalLinePlugin);
+
+const onfireGlowPlugin = {
+    id: 'onfireGlow',
+    beforeDatasetsDraw(chart) {
+        if (!onfireGoal) return;
+        const { ctx } = chart;
+        const meta = chart.getDatasetMeta(0);
+        if (!meta || !meta.data || !meta.data.length) return;
+        const area = chart.chartArea;
+        if (!area) return;
+        ctx.save();
+        ctx.shadowColor = 'rgba(163, 108, 245, 0.85)';
+        ctx.shadowBlur = 18;
+        meta.data.forEach((bar, i) => {
+            const day = chart.data.labels[i];
+            const row = dailyByDate[day];
+            if (!row || !(row.total_ap >= onfireGoal)) return;
+            const { x, base, y } = bar.getProps(['x', 'base', 'y'], true);
+            if (typeof x !== 'number' || typeof y !== 'number' || typeof base !== 'number') return;
+            const w = Math.max(bar.width, 1);
+            const h = Math.max(Math.abs(base - y), 1);
+            const top = Math.min(y, base);
+            ctx.fillStyle = 'rgba(163, 108, 245, 0.55)';
+            ctx.beginPath();
+            if (typeof ctx.roundRect === 'function') {
+                ctx.roundRect(x - w / 2, top, w, h, 5);
+            } else {
+                ctx.rect(x - w / 2, top, w, h);
+            }
+            ctx.fill();
+        });
+        ctx.restore();
+    },
+};
+Chart.register(onfireGlowPlugin);
+
 async function loadDaily(initialDate) {
     try {
         dailyData = await api("/api/me/daily");
     } catch (e) {
         return;
+    }
+    const streakEl = document.getElementById("streakBadge");
+    const streak = computeStreak(dailyData, dailyGoal);
+    if (dailyGoal > 0 && streak > 0) {
+        streakEl.style.display = "inline-block";
+        streakEl.textContent = `🔥 Run: ${streak} дн.`;
+    } else {
+        streakEl.style.display = "none";
     }
     renderDailyChart();
     loadDailyScores(initialDate);
@@ -251,10 +605,7 @@ function renderDailyChart() {
     const values = asc.map(d => d.total_ap);
     const byDate = {};
     dailyData.forEach(d => { byDate[d.date] = d; });
-
-    const colors = asc.map(d =>
-        (dailyGoal > 0 && d.total_ap >= dailyGoal) ? "#ffaa00" : "#4A9BE8"
-    );
+    dailyByDate = byDate;
 
     const config = {
         type: "bar",
@@ -262,7 +613,21 @@ function renderDailyChart() {
             labels: labels,
             datasets: [{
                 data: values,
-                backgroundColor: colors,
+                backgroundColor: (context) => {
+                    const chart = context.chart;
+                    const d = byDate[chart.data.labels[context.dataIndex]];
+                    if (!d) return "#4A9BE8";
+                    if (onfireGoal > 0 && d.total_ap >= onfireGoal) {
+                        const ca = chart.chartArea;
+                        if (!ca) return "#a36cf5";
+                        const grad = chart.ctx.createLinearGradient(0, ca.bottom, 0, ca.top);
+                        grad.addColorStop(0, "#a36cf5");
+                        grad.addColorStop(1, "#ff69b4");
+                        return grad;
+                    }
+                    if (dailyGoal > 0 && d.total_ap >= dailyGoal) return "#ffaa00";
+                    return "#4A9BE8";
+                },
                 borderRadius: 5,
                 maxBarThickness: 34,
             }],
@@ -333,6 +698,9 @@ async function loadDailyScores(date) {
     const tableWrap = document.getElementById("dailyTableWrap");
     const gradesWrap = document.getElementById("dailyGrades");
     const empty = document.getElementById("dailyEmpty");
+    const progressWrap = document.getElementById("goalProgress");
+    const progressFill = document.getElementById("goalProgressFill");
+    const progressLabel = document.getElementById("goalProgressLabel");
     let scores = [];
     try {
         scores = await api(`/api/me/scores?date=${encodeURIComponent(date)}`);
@@ -346,6 +714,7 @@ async function loadDailyScores(date) {
         empty.style.display = "block";
         summary.textContent = "";
         goalEl.textContent = "";
+        progressWrap.style.display = "none";
         return;
     }
 
@@ -356,11 +725,25 @@ async function loadDailyScores(date) {
     const best = Math.max(...scores.map(s => s.ap));
     summary.textContent = `Sum AP: ${Math.floor(total)} · Maps: ${scores.length} · Best: ${Math.floor(best)} AP`;
 
-    if (dailyGoal > 0) {
-        goalEl.textContent = `${Math.floor(total)} / ${dailyGoal} AP` + (total >= dailyGoal ? " 🔥" : "");
-        goalEl.className = "daily-goal-status" + (total >= dailyGoal ? " done" : "");
+    const progressTarget = onfireGoal > 0 ? onfireGoal : (dailyGoal > 0 ? dailyGoal : 0);
+    if (progressTarget > 0) {
+        const onfire = onfireGoal > 0 && total >= onfireGoal;
+        const done = dailyGoal > 0 && total >= dailyGoal;
+        let text = "";
+        if (dailyGoal > 0) text = `${Math.floor(total)} / ${dailyGoal} AP`;
+        else text = `${Math.floor(total)} AP`;
+        if (onfireGoal > 0) text += ` · 🔥 ${Math.floor(total)} / ${onfireGoal} AP`;
+        if (onfire) text += " 🔥🔥";
+        else if (done) text += " 🔥";
+        goalEl.textContent = text;
+        goalEl.className = "daily-goal-status" + (onfire ? " onfire" : done ? " done" : "");
+        const pct = Math.min(100, Math.round(total / progressTarget * 100));
+        progressWrap.style.display = "block";
+        progressFill.style.width = pct + "%";
+        progressLabel.textContent = `${Math.floor(total)} / ${progressTarget} AP · ${pct}%`;
     } else {
         goalEl.textContent = "";
+        progressWrap.style.display = "none";
     }
 
     const counts = {};
@@ -373,7 +756,7 @@ async function loadDailyScores(date) {
         gradesWrap.style.display = "flex";
         gradesWrap.innerHTML = gradeKeys.map(g => `
             <div class="grade-badge small">
-                <span class="gl" style="color:${GRADE_COLORS[g]}">${g}</span>
+                <span class="gl" style="color:${GRADE_COLORS[g]}">${RANK_LABELS[g] || g}</span>
                 <span class="gc">${counts[g]}</span>
             </div>
         `).join("");
@@ -383,10 +766,11 @@ async function loadDailyScores(date) {
 
     document.getElementById("dailyBody").innerHTML = scores.map(s => `
         <tr>
-            <td class="title" title="${s.beatmap_title}">${truncateTitle(s.beatmap_title)}</td>
+            <td class="title" title="${s.beatmap_title}">${thumbHtml(s)}${titleCell(s)}</td>
+            <td class="stars">${starsCell(s)}</td>
             <td>${(s.accuracy * 100).toFixed(2)}%</td>
             <td class="grade" style="color:${GRADE_COLORS[s.grade] || "#fff"}">${s.grade}</td>
-            <td>${s.mods || 'NM'}</td>
+            <td>${modsCell(s.mods)}</td>
             <td>x${s.max_combo}</td>
             <td class="pp">${s.pp ? s.pp.toFixed(1) : '-'}</td>
             <td class="ap">${Math.floor(s.ap)} AP</td>
@@ -409,22 +793,52 @@ if (copyTokenBtn) {
     });
 }
 
+async function saveGoals(payload) {
+    if (VIEWING_OTHER) return;
+    const res = await fetch("/api/me/goal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${TOKEN}` },
+        body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+        let detail = "Failed to save goal";
+        try {
+            const j = await res.json();
+            if (j && j.detail) detail = j.detail;
+        } catch (e) {}
+        throw new Error(detail);
+    }
+    return res.json();
+}
+
 const goalSetBtn = document.getElementById("goalSetBtn");
 if (goalSetBtn) {
     goalSetBtn.addEventListener("click", async () => {
         const val = parseInt(document.getElementById("goalInput").value) || 0;
         try {
-            await api("/api/me/goal", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ goal: val })
-            });
-            updateGoalStatus(val);
+            await saveGoals({ goal: val, onfire_goal: onfireGoal });
             dailyGoal = val;
+            updateGoalStatus(val);
             if (dailyData.length) renderDailyChart();
             loadDailyScores(document.getElementById("dailyDate").value);
         } catch (e) {
-            document.getElementById("goalStatus").textContent = "Failed to save goal";
+            alert(e.message);
+        }
+    });
+}
+
+const onfireSetBtn = document.getElementById("onfireSetBtn");
+if (onfireSetBtn) {
+    onfireSetBtn.addEventListener("click", async () => {
+        const val = parseInt(document.getElementById("onfireInput").value) || 0;
+        try {
+            await saveGoals({ goal: dailyGoal, onfire_goal: val });
+            onfireGoal = val;
+            updateOnfireStatus(val);
+            if (dailyData.length) renderDailyChart();
+            loadDailyScores(document.getElementById("dailyDate").value);
+        } catch (e) {
+            alert(e.message);
         }
     });
 }
@@ -436,9 +850,150 @@ if (goalInput) {
     });
 }
 
+const onfireInput = document.getElementById("onfireInput");
+if (onfireInput) {
+    onfireInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && onfireSetBtn) onfireSetBtn.click();
+    });
+}
+
 document.getElementById("dailyDate").addEventListener("change", (e) => {
     if (e.target.value) loadDailyScores(e.target.value);
 });
+
+const thumbPreview = (() => {
+    const box = document.createElement("div");
+    box.className = "thumb-preview";
+    box.innerHTML = '<img src="" alt="">';
+    document.body.appendChild(box);
+    const img = box.querySelector("img");
+
+    let cur = null;
+    const hide = () => {
+        box.style.display = "none";
+        cur = null;
+    };
+
+    document.addEventListener("mouseover", (e) => {
+        const t = e.target.closest(".map-thumb");
+        if (t) {
+            if (cur === t) return;
+            cur = t;
+            const big = t.src.replace("card@2x.jpg", "cover@2x.jpg");
+            img.onload = () => { if (cur === t) box.style.display = "block"; };
+            img.src = big;
+            if (img.complete) box.style.display = "block";
+        } else if (!e.target.closest(".thumb-preview")) {
+            hide();
+        }
+    });
+
+    document.addEventListener("mousemove", (e) => {
+        if (!cur) return;
+        const off = 14;
+        const r = box.getBoundingClientRect();
+        let x = e.clientX + off;
+        let y = e.clientY + off;
+        if (x + r.width > window.innerWidth - 8) x = e.clientX - r.width - off;
+        if (y + r.height > window.innerHeight - 8) y = e.clientY - r.height - off;
+        box.style.left = x + "px";
+        box.style.top = y + "px";
+    });
+
+    document.addEventListener("mouseout", (e) => {
+        if (cur && e.target.closest(".map-thumb") === cur) hide();
+    });
+    return box;
+})();
+
+initFlagPicker();
+
+function applyBanner(url) {
+    const banner = document.getElementById("profileBanner");
+    const removeBtn = document.getElementById("removeBannerBtn");
+    if (!banner) return;
+    if (url) {
+        banner.style.backgroundImage = `url(${url})`;
+        banner.classList.add("has-image");
+        if (removeBtn) removeBtn.style.display = "inline-block";
+    } else {
+        banner.style.backgroundImage = "";
+        banner.classList.remove("has-image");
+        if (removeBtn) removeBtn.style.display = "none";
+    }
+}
+
+let cropper = null;
+
+const uploadBannerBtn = document.getElementById("uploadBannerBtn");
+const bannerFileInput = document.getElementById("bannerFileInput");
+const cropModal = document.getElementById("cropModal");
+const cropImage = document.getElementById("cropImage");
+const cropCancelBtn = document.getElementById("cropCancelBtn");
+const cropSaveBtn = document.getElementById("cropSaveBtn");
+const removeBannerBtn = document.getElementById("removeBannerBtn");
+
+function closeCropModal() {
+    cropModal.style.display = "none";
+    if (cropper) {
+        cropper.destroy();
+        cropper = null;
+    }
+}
+
+if (uploadBannerBtn && bannerFileInput && cropModal) {
+    uploadBannerBtn.addEventListener("click", () => bannerFileInput.click());
+
+    bannerFileInput.addEventListener("change", (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            cropImage.src = ev.target.result;
+            cropModal.style.display = "flex";
+            if (cropper) cropper.destroy();
+            cropper = new Cropper(cropImage, {
+                aspectRatio: 6.75,
+                viewMode: 1,
+                autoCropArea: 1,
+                background: false,
+                movable: true,
+                zoomable: true,
+            });
+        };
+        reader.readAsDataURL(file);
+        bannerFileInput.value = "";
+    });
+
+    cropCancelBtn.addEventListener("click", closeCropModal);
+
+    cropSaveBtn.addEventListener("click", () => {
+        if (!cropper) return;
+        const canvas = cropper.getCroppedCanvas({ width: 1080, height: 160 });
+        canvas.toBlob(async (blob) => {
+            const fd = new FormData();
+            fd.append("file", blob, "banner.jpg");
+            try {
+                const res = await api("/api/me/banner", { method: "POST", body: fd });
+                applyBanner(res.url);
+                closeCropModal();
+            } catch (err) {
+                alert("Failed to upload banner");
+            }
+        }, "image/jpeg", 0.92);
+    });
+}
+
+if (removeBannerBtn) {
+    removeBannerBtn.addEventListener("click", async () => {
+        try {
+            await api("/api/me/banner", { method: "DELETE" });
+            applyBanner(null);
+        } catch (err) {
+            alert("Failed to remove banner");
+        }
+    });
+}
 
 loadProfile();
 </script>

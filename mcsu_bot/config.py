@@ -22,24 +22,35 @@ class Config:
 
 
 def load_config(path: str = "config.json") -> Config:
-    with open(path, encoding="utf-8") as f:
+    config_file = Path(path)
+    with open(config_file, encoding="utf-8") as f:
         data = json.load(f)
+    base_dir = config_file.resolve().parent
+
+    def _resolve(value) -> Optional[Path]:
+        if value is None:
+            return None
+        p = Path(value)
+        return p if p.is_absolute() else (base_dir / p)
+
     songs_dir = data.get("songs_dir")
     ap_db_path = data.get("ap_db_path")
     cfg_dir = data.get("cfg_dir")
-    scores_db_path = Path(data["scores_db_path"])
+    scores_db_path = _resolve(data["scores_db_path"])
     if cfg_dir is None:
         cfg_dir = scores_db_path.parent / "cfg"
+    else:
+        cfg_dir = _resolve(cfg_dir)
     return Config(
         discord_token=data["discord_token"],
         osu_client_id=data["osu_client_id"],
         osu_client_secret=data["osu_client_secret"],
         scores_db_path=scores_db_path,
-        osu_cache_dir=Path(data.get("osu_cache_dir", "cache/osu_files")),
-        songs_dir=Path(songs_dir) if songs_dir else None,
+        osu_cache_dir=_resolve(data.get("osu_cache_dir", "cache/osu_files")),
+        songs_dir=_resolve(songs_dir),
         cfg_dir=Path(cfg_dir),
         command_prefix=data.get("command_prefix", "!"),
-        ap_db_path=Path(ap_db_path) if ap_db_path else None,
+        ap_db_path=_resolve(ap_db_path),
         osu_username=data.get("osu_username", ""),
         server_url=data.get("server_url", ""),
         server_token=data.get("server_token", ""),

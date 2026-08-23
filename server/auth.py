@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -19,6 +20,9 @@ TOKEN_COOKIE_NAME = "mcsu_token"
 OSU_TOKEN_URL = "https://osu.ppy.sh/oauth/token"
 OSU_ME_URL = "https://osu.ppy.sh/api/v2/me"
 OSU_AUTHORIZE_URL = "https://osu.ppy.sh/oauth/authorize"
+OSU_BEATMAP_LOOKUP_URL = "https://osu.ppy.sh/api/v2/beatmaps/lookup"
+
+_client_token: tuple[str, float] | None = None
 
 
 def get_authorize_url(config: ServerConfig) -> str:
@@ -64,6 +68,66 @@ async def fetch_osu_user(access_token: str) -> dict:
         resp = await client.get(OSU_ME_URL, headers=headers)
         resp.raise_for_status()
         return resp.json()
+
+
+async def get_osu_client_token(config: ServerConfig) -> str:
+    global _client_token
+    now = time.time()
+    if _client_token and now < _client_token[1]:
+        return _client_token[0]
+
+    data = {
+        "client_id": config.osu_client_id,
+        "client_secret": config.osu_client_secret,
+        "grant_type": "client_credentials",
+        "scope": "public",
+    }
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(OSU_TOKEN_URL, data=data)
+        resp.raise_for_status()
+        token_data = resp.json()
+
+    expires_in = int(token_data.get("expires_in", 3600))
+    _client_token = (
+        token_data["access_token"],
+        now + expires_in - 60,
+    )
+    return _client_token[0]
+
+
+async def lookup_beatmap_by_md5(config: ServerConfig, md5: str) -> dict | None:
+    try:
+        token = await get_osu_client_token(config)
+        headers = {"Authorization": f"Bearer {token}"}
+        params = {"checksum": md5}
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                OSU_BEATMAP_LOOKUP_URL, headers=headers, params=params
+            )
+            if resp.status_code == 404:
+                return None
+            resp.raise_for_status()
+            raw = resp.json()
+    except Exception:
+        return None
+
+    bmset = raw.get("beatmapset")
+    if not bmset:
+        return None
+
+    return {
+        "beatmap_id": raw.get("id"),
+        "beatmapset_id": raw.get("beatmapset_id"),
+        "title": (
+            f"{bmset.get('artist', '')} - {bmset.get('title', '')} "
+            f"[{raw.get('version', '')}]"
+        ).strip(),
+        "stars": raw.get("difficulty_rating"),
+        "map_url": (
+            f"https://osu.ppy.sh/beatmapsets/{raw.get('beatmapset_id', 0)}"
+            f"#osu/{raw.get('id', 0)}"
+        ),
+    }
 
 
 def create_jwt(config: ServerConfig, user_id: int) -> str:

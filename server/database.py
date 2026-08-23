@@ -31,9 +31,11 @@ class User(Base):
     osu_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False)
     username: Mapped[str] = mapped_column(String(64), nullable=False)
     avatar_url: Mapped[str] = mapped_column(String(512), nullable=False)
+    flag: Mapped[str] = mapped_column(String(32), nullable=False, default="")
     osu_access_token: Mapped[str] = mapped_column(Text, nullable=False)
     osu_refresh_token: Mapped[str] = mapped_column(Text, nullable=False)
     daily_goal: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    onfire_goal: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(timezone.utc)
     )
