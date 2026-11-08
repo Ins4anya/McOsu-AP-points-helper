@@ -64,10 +64,9 @@ def _copy_db(db_path: Path) -> bytes:
 
 
 def _parse_score(
-    data: bytes, offset: int, md5: str, version: int
+    data: bytes, offset: int, md5: str, version: int, score_version: int
 ) -> tuple[OsuScore, int]:
     gamemode, offset = _read_byte(data, offset)
-    score_version, offset = _read_int(data, offset)
     unix_timestamp, offset = _read_long(data, offset)
     player_name, offset = _read_osu_string(data, offset)
 
@@ -157,7 +156,8 @@ def read_all_scores(db_path: Path) -> list[OsuScore]:
         for _ in range(num_scores):
             if offset >= len(data):
                 break
-            result, offset = _parse_score(data, offset, md5, version)
+            score_version, offset = _read_int(data, offset)
+            result, offset = _parse_score(data, offset, md5, version, score_version)
             if result is not None:
                 scores.append(result)
 

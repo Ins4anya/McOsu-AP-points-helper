@@ -11,6 +11,7 @@ scores_server.db
 build/
 dist/
 *.spec
+!build.spec
 
 # Cache
 cache/

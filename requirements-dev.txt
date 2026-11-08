@@ -1,0 +1,3 @@
+# Dev/test dependencies (not part of the runtime requirements).
+# Install with:  python -m pip install -r requirements-dev.txt
+pytest>=7.0

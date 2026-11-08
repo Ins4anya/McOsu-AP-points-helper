@@ -1,6 +1,5 @@
 import asyncio
 import threading
-from pathlib import Path
 from dataclasses import dataclass
 
 from mcsu_bot.models import OsuScore, BeatmapMeta, PPResult
@@ -9,6 +8,7 @@ from mcsu_bot.pp_calculator import calculate_pp
 from mcsu_bot.ap_calculator import calculate_ap, explain_ap, APBreakdown, _calculate_grade
 from mcsu_bot.osu_api import OsuAPI, _api_score_to_osu_score, _apply_object_weights
 from mcsu_bot.database import Database
+from mcsu_bot.paths import ap_db_file
 
 
 @dataclass
@@ -39,7 +39,9 @@ class ScoreFetcher(threading.Thread):
     def run(self):
         result = ScoreFetchResult()
         source = getattr(self.config, "source", "mcsu")
-        self.on_status(f"Reading latest score from {'osu!' if source == 'osu' else 'McOsu'}...")
+        if source == "osu":
+            source = "api"
+        self.on_status(f"Reading latest score from {'osu!' if source == 'api' else 'McOsu'}...")
         try:
             score = _get_latest_score(self.config)
         except Exception as e:
@@ -108,7 +110,7 @@ class ScoreFetcher(threading.Thread):
         result.breakdown = explain_ap(score, meta, pp_result.accuracy, pp_result.star_rating_mods, pp_result)
         result.success = True
 
-        db_path = self.config.ap_db_path or (Path(__file__).resolve().parent.parent.parent / "scores_ap.db")
+        db_path = self.config.ap_db_path or ap_db_file()
         db = Database(db_path)
         try:
             db.connect()
@@ -219,7 +221,7 @@ class OsuApiScoreFetcher(threading.Thread):
         result.breakdown = explain_ap(score, meta, pp_result.accuracy, pp_result.star_rating_mods, pp_result)
         result.success = True
 
-        db_path = self.config.ap_db_path or (Path(__file__).resolve().parent.parent.parent / "scores_ap.db")
+        db_path = self.config.ap_db_path or ap_db_file()
         db = Database(db_path)
         try:
             db.connect()

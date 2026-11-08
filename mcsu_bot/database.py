@@ -3,6 +3,7 @@ import sqlite3
 from pathlib import Path
 from typing import Optional
 
+from .mods import mods_to_string
 from .models import OsuScore, BeatmapMeta
 
 
@@ -152,7 +153,7 @@ class Database:
         commit: bool = True,
     ) -> bool:
         total_hits = score.count300 + score.count100 + score.count50 + score.count_miss
-        mods_str = self._mods_to_string(score.mods, score.speed_mult)
+        mods_str = mods_to_string(score.mods, score.speed_mult)
         title = f"{meta.artist} - {meta.title} [{meta.difficulty}]"
         key = make_score_key(score.beatmap_md5, mods_str, score.max_combo, accuracy, score.pp)
 
@@ -187,32 +188,25 @@ class Database:
         )
         return cur.fetchall()
 
-    @staticmethod
-    def _mods_to_string(mods: int, speed_mult=None) -> str:
-        if mods == 0 and (speed_mult is None or abs(speed_mult - 1.0) < 0.005):
-            return "NM"
-        MODS_BITMAP = {
-            1 << 0: "NF", 1 << 1: "EZ", 1 << 2: "TD", 1 << 3: "HD",
-            1 << 4: "HR", 1 << 5: "SD", 1 << 6: "DT", 1 << 7: "RX",
-            1 << 8: "HT", 1 << 9: "NC", 1 << 10: "FL", 1 << 11: "AU",
-            1 << 12: "SO", 1 << 13: "AP", 1 << 14: "PF", 1 << 15: "4K",
-            1 << 16: "5K", 1 << 17: "6K", 1 << 18: "7K", 1 << 19: "8K",
-            1 << 20: "FI", 1 << 21: "RN", 1 << 22: "CN", 1 << 23: "TP",
-            1 << 24: "9K", 1 << 25: "KC", 1 << 26: "1K", 1 << 27: "3K",
-            1 << 28: "2K", 1 << 29: "V2", 1 << 30: "MR",
-        }
-        result = []
-        for bit, name in MODS_BITMAP.items():
-            if mods & bit:
-                result.append(name)
-        if "NC" in result and "DT" in result:
-            result.remove("DT")
-        if "PF" in result and "SD" in result:
-            result.remove("SD")
-        tag = ""
-        if speed_mult is not None and speed_mult > 0:
-            expected = 1.5 if (mods & (1 << 6 | 1 << 9)) else (0.75 if (mods & (1 << 8)) else 1.0)
-            if abs(speed_mult - expected) >= 0.005:
-                tag = f" {speed_mult:g}x"
-        base = "+" + "".join(result)
-        return base + tag if (result or tag) else "NM"
+    def get_top_scores(self, limit: int = 5) -> list[sqlite3.Row]:
+        cur = self.conn.execute(
+            "SELECT * FROM scores ORDER BY ap DESC, timestamp DESC LIMIT ?",
+            (max(1, int(limit)),),
+        )
+        return cur.fetchall()
+
+    def get_best_score(self) -> Optional[sqlite3.Row]:
+        cur = self.conn.execute(
+            "SELECT * FROM scores ORDER BY ap DESC, timestamp DESC LIMIT 1"
+        )
+        return cur.fetchone()
+
+    def get_daily_summary(self, day_start: int, day_end: int) -> sqlite3.Row:
+        cur = self.conn.execute(
+            """SELECT COALESCE(SUM(ap), 0) AS total_ap,
+                      COUNT(*) AS count,
+                      COALESCE(MAX(ap), 0) AS best_ap
+               FROM scores WHERE timestamp >= ? AND timestamp < ?""",
+            (day_start, day_end),
+        )
+        return cur.fetchone()

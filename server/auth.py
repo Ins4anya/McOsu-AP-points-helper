@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlencode
 
 import httpx
 from jose import JWTError, jwt
@@ -25,12 +26,15 @@ OSU_BEATMAP_LOOKUP_URL = "https://osu.ppy.sh/api/v2/beatmaps/lookup"
 _client_token: tuple[str, float] | None = None
 
 
-def get_authorize_url(config: ServerConfig) -> str:
-    params = (
-        f"client_id={config.osu_client_id}"
-        f"&redirect_uri={config.osu_redirect_uri}"
-        f"&response_type=code"
-        f"&scope=identify"
+def get_authorize_url(config: ServerConfig, state: str) -> str:
+    params = urlencode(
+        {
+            "client_id": config.osu_client_id,
+            "redirect_uri": config.osu_redirect_uri,
+            "response_type": "code",
+            "scope": "identify",
+            "state": state,
+        }
     )
     return f"{OSU_AUTHORIZE_URL}?{params}"
 
@@ -178,7 +182,10 @@ async def get_current_user(
     token = None
     if credentials is not None:
         token = credentials.credentials
-    else:
+    elif request.method in ("GET", "HEAD", "OPTIONS"):
+        # Cookie fallback is allowed only for safe (read-only) methods.
+        # State-changing requests must present the Authorization header,
+        # which a cross-origin attacker cannot set — closing the CSRF window.
         token = request.cookies.get(TOKEN_COOKIE_NAME)
     if not token:
         raise HTTPException(

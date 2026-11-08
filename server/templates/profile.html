@@ -11,7 +11,13 @@
         {% endif %}
     </div>
     <div class="profile-header">
-        <img id="avatar" src="" alt="avatar" class="avatar">
+        <div class="avatar-col">
+            <img id="avatar" src="" alt="avatar" class="avatar">
+            <div class="ranked-rank" id="rankedRank" style="display:none">
+                <span class="spec-label"><span>Звание</span></span>
+                <span class="ranked-tier-badge" id="rankedTierBadge"></span>
+            </div>
+        </div>
         <div class="profile-info">
             <h2><span class="flag-emoji" id="userFlag"></span><span id="username">Loading...</span></h2>
             <div class="profile-actions">
@@ -35,6 +41,11 @@
     <div class="token-hint" id="tokenHint" style="display:none">
         <strong>What is this token?</strong> The token links your desktop app (McOsuTracker) to this server. Open the app,
         paste your Server URL, and use this token to sync your scores automatically.
+    </div>
+    <div class="overlay-hint" id="overlayHint" style="display:none">
+        <strong>OBS Overlay URL:</strong>
+        <code id="overlayUrl"></code>
+        <button class="btn btn-sm btn-ghost" id="copyOverlayBtn">Copy</button>
     </div>
     {% endif %}
 
@@ -61,8 +72,54 @@
             <input type="number" id="onfireInput" min="0" placeholder="0">
             <button class="btn btn-sm" id="onfireSetBtn">Set</button>
         </div>
+        <div class="streak-row" id="streakRow" style="display:none">
+            <span class="streak-badge" id="streakBadge"></span>
+            <span class="streak-info" id="streakInfo"></span>
+            <button class="btn btn-sm" id="reviveBtn" style="display:none">🔄 Восстановить стрик</button>
+        </div>
     </div>
     {% endif %}
+
+    {% if not viewing_other %}
+    <div class="card" id="challengeCard" style="display:none">
+        <div class="challenge-header">
+            <h3>🎯 Daily Challenge</h3>
+            <label class="challenge-toggle" title="Подбирать карты из вашей папки Songs (нужна передача библиотеки в клиенте)">
+                <input type="checkbox" id="localChallengeToggle">
+                Рекомендовать карты из моего Songs
+            </label>
+            <span class="challenge-progress" id="challengeProgress"></span>
+        </div>
+        <div class="challenge-hint" id="challengeHint" style="display:none"></div>
+        <div class="challenge-progress-bar" id="challengeProgressBar" style="display:none">
+            <div class="challenge-progress-bar-fill" id="challengeProgressBarFill"></div>
+        </div>
+        <div class="challenge-grid" id="challengeGrid"></div>
+        <div class="challenge-banner" id="challengeBanner" style="display:none"></div>
+    </div>
+    {% endif %}
+
+    <div class="card" id="rankedCard" style="display:none"></div>
+
+    <div class="card skill-card" id="skillCard" style="display:none">
+        <div class="skill-card-head">
+            <div class="skill-card-title">
+                <h3>Skill Radar</h3>
+                <span class="skill-sub">Based on <strong id="skillSamples">0</strong> scores</span>
+            </div>
+            <span class="skill-live"><span class="skill-live-dot"></span>Live</span>
+        </div>
+        <div class="skill-grid">
+            <div class="skill-radar-wrap">
+                <div class="skill-radar-glow"></div>
+                <canvas id="skillRadar"></canvas>
+            </div>
+            <div class="skill-side">
+                <div class="skill-points" id="skillPoints"></div>
+                <div class="skill-badges" id="skillBadges"></div>
+            </div>
+        </div>
+    </div>
 
     <div class="card" id="gradesCard" style="display:none">
         <h3>Grade Distribution</h3>
@@ -72,12 +129,15 @@
     <div class="card" id="dailyCard" style="display:none">
         <h3>Daily</h3>
         <div class="daily-controls">
+            <label for="dailyPeriod" class="daily-period-label">Period</label>
+            <select id="dailyPeriod" class="daily-period-select"></select>
+            <span class="daily-controls-sep"></span>
             <label for="dailyDate">📅</label>
             <input type="date" id="dailyDate">
             <span class="daily-summary" id="dailySummary"></span>
             <span class="daily-goal-status" id="dailyGoalStatus"></span>
-            <span class="streak-badge" id="streakBadge" style="display:none"></span>
         </div>
+        <div class="daily-period-summary" id="dailyPeriodSummary"></div>
         <div class="chart-wrap">
             <canvas id="dailyChart"></canvas>
         </div>
@@ -100,6 +160,7 @@
                         <th>PP</th>
                         <th>AP</th>
                         <th>Source</th>
+                        <th></th>
                     </tr>
                 </thead>
                 <tbody id="dailyBody"></tbody>
@@ -121,6 +182,7 @@
                         <th>Combo</th>
                         <th>PP</th>
                         <th>AP</th>
+                        <th></th>
                     </tr>
                 </thead>
                 <tbody id="topBody"></tbody>
@@ -149,8 +211,7 @@
 </div>
 
 {% if not viewing_other %}
-<input type="file" id="bannerFileInput" accept="image/*" style="display:none">
-<div class="modal-overlay" id="cropModal" style="display:none">
+<input type="file" id="bannerFileInput" accept="image/*" style="display:none"><div class="modal-overlay" id="cropModal" style="display:none">
     <div class="modal">
         <h3>Select banner area</h3>
         <p class="modal-hint">The banner is wide — drag the frame to choose the part to show.</p>
@@ -165,6 +226,11 @@
 </div>
 {% endif %}
 
+<div class="score-menu" id="scoreMenu" style="display:none">
+    <button class="score-menu-item" type="button" data-action="details">Подробнее</button>
+</div>
+
+<script src="/static/ranked.js?v=10"></script>
 <script>
 const TOKEN = "{{ token }}";
 const VIEWING_OTHER = {{ 'true' if viewing_other else 'false' }};
@@ -180,6 +246,13 @@ let onfireGoal = 0;
 let dailyChart = null;
 let dailyData = [];
 let dailyByDate = {};
+let dailyPeriod = "all";
+let dailyMonthTotals = {};
+let dailyChartMode = "overall";
+const MONTH_NAMES = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+];
 
 function truncateTitle(title, maxLen = 55) {
     return title.length > maxLen ? title.slice(0, maxLen) + '...' : title;
@@ -201,6 +274,12 @@ function titleCell(s) {
 
 function starsCell(s) {
     return s.stars ? s.stars.toFixed(2) : '—';
+}
+
+function scoreTagHtml(s) {
+    if (!s.tag) return '';
+    const cls = s.tag === 'aim' ? 'tag-aim' : 'tag-stream';
+    return `<span class="score-tag ${cls}">${s.tag}</span>`;
 }
 
 function beatmapThumbUrl(s) {
@@ -240,6 +319,10 @@ function modsCell(mods) {
     return html;
 }
 
+function scoreMenuCell(id) {
+    return `<button class="score-menu-btn" type="button" data-score-id="${id}" aria-label="Details">⋮</button>`;
+}
+
 function animateCount(el, target, fmt = v => v) {
     const dur = 700;
     const from = 0;
@@ -251,23 +334,6 @@ function animateCount(el, target, fmt = v => v) {
         if (p < 1) requestAnimationFrame(step);
     }
     requestAnimationFrame(step);
-}
-
-function computeStreak(dailyData, goal) {
-    if (goal <= 0 || !dailyData || !dailyData.length) return 0;
-    const met = new Set(dailyData.filter(d => d.total_ap >= goal).map(d => d.date));
-    const dayMs = 86400000;
-    const dayStr = n => new Date(Date.now() - dayMs * n).toISOString().slice(0, 10);
-    let cursor = dayStr(0);
-    if (!met.has(cursor)) {
-        if (!met.has(dayStr(1))) return 0;
-    }
-    let streak = 0;
-    while (met.has(cursor)) {
-        streak++;
-        cursor = dayStr(streak);
-    }
-    return streak;
 }
 
 function formatNum(n) {
@@ -386,6 +452,17 @@ async function loadProfile() {
         document.getElementById("username").textContent = data.username;
         applyBanner(data.banner_url);
         applyFlag(data.flag);
+        const rankedCard = document.getElementById("rankedCard");
+        if (rankedCard && typeof renderRankedProfile === "function") {
+            renderRankedProfile(data.osu_id, rankedCard);
+        }
+
+        const overlayHint = document.getElementById("overlayHint");
+        if (overlayHint) {
+            const overlayUrl = `${location.protocol}//${location.hostname}:8001/overlay/${data.osu_id}`;
+            document.getElementById("overlayUrl").textContent = overlayUrl;
+            overlayHint.style.display = "flex";
+        }
 
         const stats = [
             { label: "Total AP", value: data.total_ap },
@@ -447,7 +524,7 @@ async function loadProfile() {
             empty.style.display = "none";
             tbody.innerHTML = data.top_scores.map(s => `
                 <tr>
-                    <td class="title" title="${s.beatmap_title}">${thumbHtml(s)}${titleCell(s)}</td>
+                    <td class="title" title="${s.beatmap_title}">${thumbHtml(s)}${titleCell(s)}${scoreTagHtml(s)}</td>
                     <td class="stars">${starsCell(s)}</td>
                     <td>${(s.accuracy * 100).toFixed(2)}%</td>
                     <td class="grade" style="color:${GRADE_COLORS[s.grade] || '#fff'}">${s.grade}</td>
@@ -455,6 +532,7 @@ async function loadProfile() {
                     <td>x${s.max_combo}</td>
                     <td class="pp">${s.pp ? s.pp.toFixed(1) : '-'}</td>
                     <td class="ap">${Math.floor(s.ap)} AP</td>
+                    <td class="score-actions">${scoreMenuCell(s.id)}</td>
                 </tr>
             `).join("");
         }
@@ -479,6 +557,8 @@ async function loadProfile() {
             playedMore.addEventListener("click", () => renderPlayed(data.most_played.length));
             playedCard.style.display = "block";
         }
+
+        loadSkills();
     } catch (e) {
         document.getElementById("username").textContent = "Error loading profile";
     }
@@ -496,17 +576,167 @@ function updateOnfireStatus(goal) {
     input.style.color = goal > 0 ? "var(--purple)" : "";
 }
 
+function monthLabel(key, short = false) {
+    const [year, month] = key.split("-").map(Number);
+    const name = MONTH_NAMES[month - 1] || key;
+    return short ? `${name.slice(0, 3)} ${year}` : `${name} ${year}`;
+}
+
+function formatDateLabel(date) {
+    const [year, month, day] = date.split("-");
+    return `${day}.${month}.${year}`;
+}
+
+function daysInMonth(key) {
+    const [year, month] = key.split("-").map(Number);
+    return new Date(year, month, 0).getDate();
+}
+
+function monthDates(key) {
+    const count = daysInMonth(key);
+    return Array.from({ length: count }, (_, i) =>
+        `${key}-${String(i + 1).padStart(2, "0")}`
+    );
+}
+
+function buildMonthTotals() {
+    const totals = new Map();
+    for (const row of dailyData) {
+        const key = row.date.slice(0, 7);
+        let item = totals.get(key);
+        if (!item) {
+            item = {
+                month: key,
+                total_ap: 0,
+                scores_count: 0,
+                active_days: 0,
+                best_day: row.date,
+                best_day_ap: 0,
+            };
+            totals.set(key, item);
+        }
+        const ap = Number(row.total_ap) || 0;
+        item.total_ap += ap;
+        item.scores_count += Number(row.scores_count) || 0;
+        if (ap > 0 || (Number(row.scores_count) || 0) > 0) item.active_days += 1;
+        if (ap > item.best_day_ap) {
+            item.best_day = row.date;
+            item.best_day_ap = ap;
+        }
+    }
+    return totals;
+}
+
+function populateDailyPeriods() {
+    const select = document.getElementById("dailyPeriod");
+    if (!select) return;
+    const months = [...new Set(dailyData.map(row => row.date.slice(0, 7)))].sort().reverse();
+    select.innerHTML = `<option value="all">Overall</option>` +
+        months.map(key => `<option value="${key}">${monthLabel(key)}</option>`).join("");
+    if (dailyPeriod !== "all" && !months.includes(dailyPeriod)) {
+        dailyPeriod = "all";
+    }
+    select.value = dailyPeriod;
+}
+
+function getDailySeries() {
+    if (dailyPeriod === "all") {
+        const keys = [...dailyMonthTotals.keys()].sort();
+        const rows = keys.map(key => dailyMonthTotals.get(key));
+        return {
+            mode: "overall",
+            labels: keys,
+            rows: rows,
+            values: rows.map(row => row.total_ap),
+        };
+    }
+    const rows = monthDates(dailyPeriod).map(date =>
+        dailyByDate[date] || { date, total_ap: 0, scores_count: 0, best_score_ap: 0 }
+    );
+    return {
+        mode: "month",
+        labels: rows.map(row => row.date),
+        rows: rows,
+        values: rows.map(row => row.total_ap),
+    };
+}
+
+function latestActiveDay() {
+    if (dailyPeriod === "all") {
+        const rows = [...dailyData].sort((a, b) => b.date.localeCompare(a.date));
+        return rows.find(row =>
+            (Number(row.scores_count) || 0) > 0 || (Number(row.total_ap) || 0) > 0
+        ) || null;
+    }
+    const rows = monthDates(dailyPeriod).map(date => dailyByDate[date]).filter(Boolean);
+    for (let i = rows.length - 1; i >= 0; i--) {
+        const row = rows[i];
+        if ((Number(row.scores_count) || 0) > 0 || (Number(row.total_ap) || 0) > 0) {
+            return row;
+        }
+    }
+    return null;
+}
+
+function syncDailyForPeriod() {
+    const input = document.getElementById("dailyDate");
+    if (!input) return;
+    if (dailyPeriod === "all") {
+        input.removeAttribute("min");
+        input.removeAttribute("max");
+    } else {
+        input.min = `${dailyPeriod}-01`;
+        input.max = `${dailyPeriod}-${String(daysInMonth(dailyPeriod)).padStart(2, "0")}`;
+    }
+    const row = latestActiveDay();
+    const fallback = dailyPeriod === "all"
+        ? new Date().toISOString().slice(0, 10)
+        : `${dailyPeriod}-01`;
+    const date = row ? row.date : fallback;
+    input.value = date;
+    loadDailyScores(date);
+}
+
+function renderDailyPeriodSummary(series) {
+    const el = document.getElementById("dailyPeriodSummary");
+    if (!el) return;
+    if (!series.rows.length) {
+        el.textContent = "";
+        return;
+    }
+    const total = series.rows.reduce((sum, row) => sum + (Number(row.total_ap) || 0), 0);
+    const fmt = (value) => Math.round(value).toLocaleString("ru-RU");
+    if (series.mode === "overall") {
+        const activeDays = series.rows.reduce(
+            (sum, row) => sum + (Number(row.active_days) || 0), 0
+        );
+        const maps = series.rows.reduce(
+            (sum, row) => sum + (Number(row.scores_count) || 0), 0
+        );
+        el.textContent = `Total: ${fmt(total)} AP · ${series.rows.length} months · ${activeDays} active days · ${maps} maps`;
+    } else {
+        const activeDays = series.rows.filter(row =>
+            (Number(row.total_ap) || 0) > 0 || (Number(row.scores_count) || 0) > 0
+        ).length;
+        const best = series.rows.reduce(
+            (max, row) => Math.max(max, Number(row.total_ap) || 0), 0
+        );
+        el.textContent = `${monthLabel(dailyPeriod)} · ${fmt(total)} AP · ${activeDays} active days · Best day: ${fmt(best)} AP`;
+    }
+}
+
 function initDaily() {
     document.getElementById("dailyCard").style.display = "block";
-    const today = new Date().toISOString().slice(0, 10);
-    document.getElementById("dailyDate").value = today;
-    loadDaily(today);
+    dailyPeriod = "all";
+    loadDaily();
 }
 
 const goalLinePlugin = {
     id: 'goalLine',
     afterDatasetsDraw(chart) {
+        if (dailyChartMode !== "month") return;
         const y = chart.scales.y;
+        if (!y) return;
         const area = chart.chartArea;
         if (!area) return;
         const ctx = chart.ctx;
@@ -538,7 +768,9 @@ Chart.register(goalLinePlugin);
 const onfireGlowPlugin = {
     id: 'onfireGlow',
     beforeDatasetsDraw(chart) {
+        if (dailyChartMode !== "month") return;
         if (!onfireGoal) return;
+        if (!chart.scales.y) return;
         const { ctx } = chart;
         const meta = chart.getDatasetMeta(0);
         if (!meta || !meta.data || !meta.data.length) return;
@@ -570,22 +802,19 @@ const onfireGlowPlugin = {
 };
 Chart.register(onfireGlowPlugin);
 
-async function loadDaily(initialDate) {
+async function loadDaily() {
     try {
         dailyData = await api("/api/me/daily");
     } catch (e) {
         return;
     }
-    const streakEl = document.getElementById("streakBadge");
-    const streak = computeStreak(dailyData, dailyGoal);
-    if (dailyGoal > 0 && streak > 0) {
-        streakEl.style.display = "inline-block";
-        streakEl.textContent = `🔥 Run: ${streak} дн.`;
-    } else {
-        streakEl.style.display = "none";
-    }
+    dailyByDate = {};
+    dailyData.forEach(row => { dailyByDate[row.date] = row; });
+    dailyMonthTotals = buildMonthTotals();
+    populateDailyPeriods();
+    loadStreak();
     renderDailyChart();
-    loadDailyScores(initialDate);
+    syncDailyForPeriod();
 }
 
 function renderDailyChart() {
@@ -596,40 +825,53 @@ function renderDailyChart() {
             dailyChart = null;
         }
         canvas.style.display = "none";
+        renderDailyPeriodSummary({ rows: [] });
         return;
     }
     canvas.style.display = "block";
 
-    const asc = [...dailyData].reverse();
-    const labels = asc.map(d => d.date);
-    const values = asc.map(d => d.total_ap);
-    const byDate = {};
-    dailyData.forEach(d => { byDate[d.date] = d; });
-    dailyByDate = byDate;
+    dailyMonthTotals = buildMonthTotals();
+    const series = getDailySeries();
+    dailyChartMode = series.mode;
+    renderDailyPeriodSummary(series);
+
+    const isMonth = series.mode === "month";
+    const rowsByKey = {};
+    series.rows.forEach(row => {
+        rowsByKey[isMonth ? row.date : row.month] = row;
+    });
 
     const config = {
         type: "bar",
         data: {
-            labels: labels,
+            labels: series.labels,
             datasets: [{
-                data: values,
+                data: series.values,
                 backgroundColor: (context) => {
                     const chart = context.chart;
-                    const d = byDate[chart.data.labels[context.dataIndex]];
-                    if (!d) return "#4A9BE8";
-                    if (onfireGoal > 0 && d.total_ap >= onfireGoal) {
-                        const ca = chart.chartArea;
+                    const key = chart.data.labels[context.dataIndex];
+                    const ca = chart.chartArea;
+                    if (!isMonth) {
+                        if (!ca) return "#4A9BE8";
+                        const grad = chart.ctx.createLinearGradient(0, ca.bottom, 0, ca.top);
+                        grad.addColorStop(0, "rgba(74, 155, 232, 0.35)");
+                        grad.addColorStop(1, "#6CB4EE");
+                        return grad;
+                    }
+                    const row = rowsByKey[key];
+                    if (!row) return "#4A9BE8";
+                    if (onfireGoal > 0 && row.total_ap >= onfireGoal) {
                         if (!ca) return "#a36cf5";
                         const grad = chart.ctx.createLinearGradient(0, ca.bottom, 0, ca.top);
                         grad.addColorStop(0, "#a36cf5");
                         grad.addColorStop(1, "#ff69b4");
                         return grad;
                     }
-                    if (dailyGoal > 0 && d.total_ap >= dailyGoal) return "#ffaa00";
+                    if (dailyGoal > 0 && row.total_ap >= dailyGoal) return "#ffaa00";
                     return "#4A9BE8";
                 },
                 borderRadius: 5,
-                maxBarThickness: 34,
+                maxBarThickness: isMonth ? 34 : 52,
             }],
         },
         options: {
@@ -644,14 +886,27 @@ function renderDailyChart() {
                     titleColor: "#e6edf5",
                     bodyColor: "#8b9cb4",
                     callbacks: {
-                        title: (items) => items[0].label,
+                        title: (items) => isMonth
+                            ? formatDateLabel(items[0].label)
+                            : monthLabel(items[0].label),
                         label: (item) => {
-                            const d = byDate[item.label];
+                            const row = rowsByKey[item.label];
+                            if (!isMonth) {
+                                const lines = [
+                                    `AP: ${Math.round(item.parsed.y).toLocaleString("ru-RU")}`,
+                                    `Active days: ${row ? row.active_days : 0}`,
+                                    `Maps: ${row ? row.scores_count : 0}`,
+                                ];
+                                if (row && row.best_day_ap > 0) {
+                                    lines.push(`Best day: ${formatDateLabel(row.best_day)} · ${Math.round(row.best_day_ap).toLocaleString("ru-RU")} AP`);
+                                }
+                                return lines;
+                            }
                             const lines = [
                                 `AP: ${item.parsed.y.toLocaleString("ru-RU")}`,
-                                `Maps: ${d ? d.scores_count : 0}`,
+                                `Maps: ${row ? row.scores_count : 0}`,
                             ];
-                            if (d) lines.push(`Best: ${d.best_score_ap} AP`);
+                            if (row) lines.push(`Best: ${row.best_score_ap} AP`);
                             return lines;
                         },
                     },
@@ -663,6 +918,14 @@ function renderDailyChart() {
                         color: "#8b9cb4",
                         font: { family: "JetBrains Mono", size: 10 },
                         maxRotation: 0,
+                        autoSkip: true,
+                        maxTicksLimit: isMonth ? 16 : 12,
+                        callback(value) {
+                            const label = this.getLabelForValue(value);
+                            return isMonth
+                                ? String(parseInt(label.slice(8), 10))
+                                : monthLabel(label, true);
+                        },
                     },
                     grid: { display: false },
                     border: { color: "rgba(255,255,255,0.1)" },
@@ -676,9 +939,18 @@ function renderDailyChart() {
             },
             onClick: (event, elements, chart) => {
                 if (!elements.length) return;
-                const day = chart.data.labels[elements[0].index];
-                document.getElementById("dailyDate").value = day;
-                loadDailyScores(day);
+                const key = chart.data.labels[elements[0].index];
+                if (!isMonth) {
+                    const select = document.getElementById("dailyPeriod");
+                    if (!select) return;
+                    dailyPeriod = key;
+                    select.value = key;
+                    renderDailyChart();
+                    syncDailyForPeriod();
+                    return;
+                }
+                document.getElementById("dailyDate").value = key;
+                loadDailyScores(key);
             },
         },
     };
@@ -721,7 +993,10 @@ async function loadDailyScores(date) {
     empty.style.display = "none";
     tableWrap.style.display = "block";
 
-    const total = scores.reduce((sum, s) => sum + s.ap, 0);
+    const dayRow = dailyByDate[date];
+    const total = dayRow && typeof dayRow.total_ap === 'number'
+        ? dayRow.total_ap
+        : scores.reduce((sum, s) => sum + s.ap, 0);
     const best = Math.max(...scores.map(s => s.ap));
     summary.textContent = `Sum AP: ${Math.floor(total)} · Maps: ${scores.length} · Best: ${Math.floor(best)} AP`;
 
@@ -766,7 +1041,7 @@ async function loadDailyScores(date) {
 
     document.getElementById("dailyBody").innerHTML = scores.map(s => `
         <tr>
-            <td class="title" title="${s.beatmap_title}">${thumbHtml(s)}${titleCell(s)}</td>
+            <td class="title" title="${s.beatmap_title}">${thumbHtml(s)}${titleCell(s)}${scoreTagHtml(s)}</td>
             <td class="stars">${starsCell(s)}</td>
             <td>${(s.accuracy * 100).toFixed(2)}%</td>
             <td class="grade" style="color:${GRADE_COLORS[s.grade] || "#fff"}">${s.grade}</td>
@@ -775,8 +1050,210 @@ async function loadDailyScores(date) {
             <td class="pp">${s.pp ? s.pp.toFixed(1) : '-'}</td>
             <td class="ap">${Math.floor(s.ap)} AP</td>
             <td><span class="source-mini ${s.source === 'api' ? 'src-api' : 'src-mcsu'}">${s.source === 'api' ? 'osu! API' : 'McOsu'}</span></td>
+            <td class="score-actions">${scoreMenuCell(s.id)}</td>
         </tr>
     `).join("");
+}
+
+const SPEC_META = {
+    Aim: { icon: "gps_fixed", accent: "aim" },
+    Streams: { icon: "waves", accent: "stream" },
+    Balanced: { icon: "balance", accent: "balanced" },
+    "Small circles": { icon: "circle", accent: "cs" },
+    "Normal circles": { icon: "radio_button_unchecked", accent: "cs" },
+    "Large circles": { icon: "panorama_fish_eye", accent: "cs" },
+    "High-AR Player": { icon: "bolt", accent: "ar" },
+    "Medium AR": { icon: "graphic_eq", accent: "ar" },
+    "Low AR": { icon: "dark_mode", accent: "ar" },
+};
+
+function materialIcon(name) {
+    return `<span class="material-symbols-outlined" aria-hidden="true">${name}</span>`;
+}
+
+let skillRadar = null;
+
+const radarGlowPlugin = {
+    id: "radarGlow",
+    beforeDatasetDraw(chart, args) {
+        if (args.index !== 0) return;
+        const ctx = chart.ctx;
+        ctx.save();
+        ctx.shadowColor = "rgba(74, 155, 232, 0.75)";
+        ctx.shadowBlur = 16;
+    },
+    afterDatasetDraw(chart, args) {
+        if (args.index !== 0) return;
+        chart.ctx.restore();
+    },
+};
+
+async function loadSkills() {
+    const card = document.getElementById("skillCard");
+    if (!card) return;
+    let data;
+    try {
+        data = await api("/api/me/skills");
+    } catch (e) {
+        return;
+    }
+    if (!data || !data.valid) {
+        card.style.display = "none";
+        renderSpecialisation(null);
+        return;
+    }
+    card.style.display = "block";
+    document.getElementById("skillSamples").textContent = data.samples || 0;
+    renderSkillRadar(data.axes || {});
+    renderSkillSide(data);
+    renderSpecialisation(data.specialisation);
+}
+
+function renderSkillRadar(axes) {
+    const canvas = document.getElementById("skillRadar");
+    if (!canvas) return;
+    const keys = ["aim", "speed", "streams", "ar", "cs", "acc"];
+    const labels = ["AIM", "SPEED", "STREAMS", "AR", "CS", "ACC"];
+    const axisColors = ["#4A9BE8", "#39e6c3", "#a36cf5", "#ffd700", "#ff69b4", "#00ff7f"];
+    const values = keys.map(k => Number(axes[k]) || 0);
+    const config = {
+        type: "radar",
+        plugins: [radarGlowPlugin],
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: "Skill",
+                    data: values,
+                    backgroundColor: (context) => {
+                        const chart = context.chart;
+                        const area = chart.chartArea;
+                        if (!area) return "rgba(74, 155, 232, 0.18)";
+                        const grad = chart.ctx.createLinearGradient(
+                            area.left, area.top, area.right, area.bottom
+                        );
+                        grad.addColorStop(0, "rgba(74, 155, 232, 0.38)");
+                        grad.addColorStop(0.55, "rgba(163, 108, 245, 0.24)");
+                        grad.addColorStop(1, "rgba(74, 155, 232, 0.06)");
+                        return grad;
+                    },
+                    borderColor: "#5fb3ff",
+                    pointBackgroundColor: axisColors,
+                    pointBorderColor: "#0d1220",
+                    pointBorderWidth: 2,
+                    pointRadius: 3.5,
+                    pointHoverRadius: 6,
+                    pointHoverBorderColor: "#e6edf5",
+                    fill: true,
+                    borderWidth: 2,
+                },
+                {
+                    label: "Balanced",
+                    data: [50, 50, 50, 50, 50, 50],
+                    backgroundColor: "transparent",
+                    borderColor: "rgba(255, 255, 255, 0.16)",
+                    borderDash: [4, 6],
+                    pointRadius: 0,
+                    borderWidth: 1,
+                    fill: false,
+                },
+            ],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: { duration: 900, easing: "easeOutQuart" },
+            scales: {
+                r: {
+                    min: 0,
+                    max: 100,
+                    ticks: { display: false, stepSize: 25 },
+                    grid: { color: "rgba(255,255,255,0.07)" },
+                    angleLines: { color: "rgba(74,155,232,0.18)" },
+                    pointLabels: {
+                        color: "#9fb0c8",
+                        font: { family: "JetBrains Mono", size: 10, weight: "600" },
+                        padding: 12,
+                    },
+                },
+            },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: "rgba(17, 24, 40, 0.95)",
+                    borderColor: "rgba(74, 155, 232, 0.45)",
+                    borderWidth: 1,
+                    titleColor: "#e6edf5",
+                    bodyColor: "#8b9cb4",
+                    filter: (item) => item.datasetIndex === 0,
+                    callbacks: {
+                        label: (item) => `${item.label}: ${Number(item.parsed.r || 0).toFixed(1)}`,
+                    },
+                },
+            },
+        },
+    };
+    if (skillRadar) {
+        skillRadar.data = config.data;
+        skillRadar.options = config.options;
+        skillRadar.update();
+    } else {
+        skillRadar = new Chart(canvas, config);
+    }
+}
+
+function renderSkillSide(data) {
+    const p = data.points || {};
+    const axes = data.axes || {};
+    const clampPct = (value) => Math.max(0, Math.min(100, Number(value) || 0));
+    const point = (icon, label, value, pct, accent) => `
+        <div class="skill-point skill-point--${accent}">
+            <div class="skill-point-top">
+                <span class="skill-point-label">${materialIcon(icon)}${label}</span>
+                <span class="sp-value">${value}</span>
+            </div>
+            <div class="skill-meter">
+                <span class="skill-meter-fill" style="width:${clampPct(pct)}%"></span>
+            </div>
+        </div>
+    `;
+    const streamShare = (Number(p.stream_share) || 0) * 100;
+    document.getElementById("skillPoints").innerHTML =
+        point("gps_fixed", "Aim", `${(Number(p.aim_points) || 0).toFixed(1)} ★`, axes.aim, "aim") +
+        point("speed", "Speed", `${(Number(p.speed_points) || 0).toFixed(1)} ★`, axes.speed, "speed") +
+        point("waves", "Streams", `${Math.round(streamShare)}% AP`, axes.streams, "stream");
+
+    const b = data.badges || {};
+    const chip = (label, cls, icon) =>
+        `<span class="skill-badge ${cls}">${materialIcon(icon)}${label}</span>`;
+    const arCls = b.ar === "High-AR Player" ? "gold" : (b.ar === "Medium AR" ? "blue" : "muted");
+    const csCls = b.cs === "Small circles" ? "purple" : (b.cs === "Normal circles" ? "blue" : "muted");
+    const styleCls = b.style === "Streams" ? "blue" : (b.style === "Aim" ? "purple" : "muted");
+    const arIcon = b.ar === "High-AR Player" ? "bolt" : (b.ar === "Medium AR" ? "graphic_eq" : "dark_mode");
+    const csIcon = b.cs === "Small circles" ? "circle" : (b.cs === "Normal circles" ? "radio_button_unchecked" : "panorama_fish_eye");
+    const styleIcon = b.style === "Streams" ? "waves" : (b.style === "Aim" ? "gps_fixed" : "balance");
+    document.getElementById("skillBadges").innerHTML = [
+        b.style ? chip(b.style, styleCls, styleIcon) : "",
+        b.cs ? chip(b.cs, csCls, csIcon) : "",
+        b.ar ? chip(b.ar, arCls, arIcon) : "",
+    ].join("");
+}
+
+function renderSpecialisation(items) {
+    const el = document.getElementById("specialisation");
+    const chips = document.getElementById("specChips");
+    if (!el || !chips) return;
+    if (!items || !items.length) {
+        el.style.display = "none";
+        return;
+    }
+    chips.innerHTML = items.map((item, index) => {
+        const meta = SPEC_META[item] || { icon: "star", accent: "balanced" };
+        const primary = index === 0 ? " spec-chip--primary" : "";
+        return `<span class="spec-chip spec-chip--${meta.accent}${primary}">` +
+            `${materialIcon(meta.icon)}<span class="spec-chip-text">${item}</span></span>`;
+    }).join("");
+    el.style.display = "flex";
 }
 
 const copyTokenBtn = document.getElementById("copyTokenBtn");
@@ -788,6 +1265,19 @@ if (copyTokenBtn) {
             copyTokenBtn.textContent = "Copied!";
             setTimeout(() => {
                 copyTokenBtn.textContent = "Copy token";
+            }, 2000);
+        });
+    });
+}
+
+const copyOverlayBtn = document.getElementById("copyOverlayBtn");
+if (copyOverlayBtn) {
+    copyOverlayBtn.addEventListener("click", () => {
+        const url = document.getElementById("overlayUrl").textContent;
+        navigator.clipboard.writeText(url).then(() => {
+            copyOverlayBtn.textContent = "Copied!";
+            setTimeout(() => {
+                copyOverlayBtn.textContent = "Copy";
             }, 2000);
         });
     });
@@ -857,6 +1347,15 @@ if (onfireInput) {
     });
 }
 
+const dailyPeriodSelect = document.getElementById("dailyPeriod");
+if (dailyPeriodSelect) {
+    dailyPeriodSelect.addEventListener("change", (e) => {
+        dailyPeriod = e.target.value;
+        renderDailyChart();
+        syncDailyForPeriod();
+    });
+}
+
 document.getElementById("dailyDate").addEventListener("change", (e) => {
     if (e.target.value) loadDailyScores(e.target.value);
 });
@@ -907,6 +1406,53 @@ const thumbPreview = (() => {
 })();
 
 initFlagPicker();
+
+const scoreMenu = document.getElementById("scoreMenu");
+let scoreMenuTarget = null;
+
+function openScoreMenu(btn) {
+    scoreMenuTarget = btn;
+    const r = btn.getBoundingClientRect();
+    scoreMenu.style.display = "block";
+    const mw = scoreMenu.offsetWidth;
+    const mh = scoreMenu.offsetHeight;
+    let x = r.left;
+    let y = r.bottom + 4;
+    if (x + mw > window.innerWidth - 8) x = window.innerWidth - mw - 8;
+    if (y + mh > window.innerHeight - 8) y = r.top - mh - 4;
+    scoreMenu.style.left = x + "px";
+    scoreMenu.style.top = y + "px";
+}
+
+function closeScoreMenu() {
+    scoreMenu.style.display = "none";
+    scoreMenuTarget = null;
+}
+
+document.addEventListener("click", (e) => {
+    const btn = e.target.closest(".score-menu-btn");
+    if (btn) {
+        e.stopPropagation();
+        if (scoreMenuTarget === btn) {
+            closeScoreMenu();
+        } else {
+            openScoreMenu(btn);
+        }
+        return;
+    }
+    const item = e.target.closest(".score-menu-item");
+    if (item) {
+        e.stopPropagation();
+        const id = scoreMenuTarget ? scoreMenuTarget.dataset.scoreId : null;
+        closeScoreMenu();
+        if (id) window.location.href = `/score/${id}`;
+        return;
+    }
+    if (!e.target.closest("#scoreMenu")) closeScoreMenu();
+});
+
+window.addEventListener("resize", closeScoreMenu);
+document.addEventListener("scroll", closeScoreMenu, true);
 
 function applyBanner(url) {
     const banner = document.getElementById("profileBanner");
@@ -995,6 +1541,191 @@ if (removeBannerBtn) {
     });
 }
 
+function fmtLength(sec) {
+    if (!sec) return '';
+    const m = Math.floor(sec / 60);
+    const s = Math.round(sec % 60);
+    return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function challengeCoverUrl(m) {
+    if (m.beatmapset_id) return `https://assets.ppy.sh/beatmaps/${m.beatmapset_id}/covers/card@2x.jpg`;
+    if (m.beatmap_url) {
+        const mm = m.beatmap_url.match(/beatmapsets\/(\d+)/);
+        if (mm) return `https://assets.ppy.sh/beatmaps/${mm[1]}/covers/card@2x.jpg`;
+    }
+    return null;
+}
+
+async function loadChallenge() {
+    const card = document.getElementById("challengeCard");
+    if (!card) return;
+    let data;
+    try {
+        data = await api("/api/me/challenge");
+    } catch (e) {
+        return;
+    }
+    if (!data || !data.enabled) return;
+    card.style.display = "block";
+
+    const total = data.maps.length;
+    const done = data.completed_count;
+
+    const toggle = document.getElementById("localChallengeToggle");
+    if (toggle) toggle.checked = !!data.personal;
+    const hint = document.getElementById("challengeHint");
+    if (data.personal && data.local_count === 0) {
+        hint.textContent = "Библиотека Songs ещё не передана. В клиенте McOsuTracker отметьте «Share my Songs folder list» при подключённом сервере — библиотека отправится сама, и набор пересоберётся. Пока подобраны случайные карты.";
+        hint.style.display = "block";
+    } else if (data.personal && data.maps.some(m => !m.downloaded)) {
+        hint.textContent = "В вашей Songs не нашлось подходящих карт — остальные подобраны случайно.";
+        hint.style.display = "block";
+    } else {
+        hint.style.display = "none";
+    }
+
+    document.getElementById("challengeProgress").innerHTML =
+        `<strong>${done} / ${total}</strong> выполнено`;
+
+    const bar = document.getElementById("challengeProgressBar");
+    const fill = document.getElementById("challengeProgressBarFill");
+    const pct = total ? Math.round((done / total) * 100) : 0;
+    fill.style.width = pct + "%";
+    bar.style.display = "block";
+
+    const grid = document.getElementById("challengeGrid");
+    const maps = data.maps;
+    const topCount = maps.length <= 5 ? 2 : Math.ceil(maps.length / 2);
+    const top = maps.slice(0, topCount);
+    const bottom = maps.slice(topCount);
+
+    const tile = (m) => {
+        const cover = challengeCoverUrl(m);
+        const baseTitle = (m.title || "").replace(/\s*\[[^\]]*\]\s*$/, "");
+        const titleText = truncateTitle(baseTitle, 52);
+        const titleHtml = m.beatmap_url
+            ? `<a href="${m.beatmap_url}" target="_blank" rel="noopener noreferrer" title="${m.title}">${titleText}</a>`
+            : titleText;
+        return `
+            <div class="challenge-tile ${m.done ? 'done' : ''}">
+                ${cover ? `<img class="challenge-tile-cover" src="${cover}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.display='none'">` : ''}
+                <div class="challenge-tile-body">
+                    <div class="challenge-tile-top">
+                        <span class="challenge-stars">★ ${m.stars ? m.stars.toFixed(2) : '—'}</span>
+                        ${m.length ? `<span class="challenge-length">🕒 ${fmtLength(m.length)}</span>` : ''}
+                        ${m.version ? `<span class="challenge-version">${m.version}</span>` : ''}
+                        ${m.downloaded ? `<span class="challenge-downloaded">✓ Скачана</span>` : ''}
+                    </div>
+                    <div class="challenge-tile-title">${titleHtml}</div>
+                    <div class="challenge-tile-actions">
+                        ${m.download_url ? `<a class="btn btn-sm" href="${m.download_url}" target="_blank" rel="noopener noreferrer">⬇ Download</a>` : ''}
+                        <span class="challenge-bonus">+${data.bonus_per_map} AP</span>
+                        <span class="challenge-tile-done">✓ Done</span>
+                    </div>
+                </div>
+            </div>
+        `;
+    };
+
+    grid.innerHTML =
+        `<div class="challenge-row">${top.map(tile).join("")}</div>` +
+        (bottom.length ? `<div class="challenge-row">${bottom.map(tile).join("")}</div>` : "");
+
+    const banner = document.getElementById("challengeBanner");
+    if (data.bingo_done) {
+        banner.style.display = "block";
+        banner.textContent = `🏆 BINGO! +${data.bingo_bonus} AP`;
+    } else {
+        banner.style.display = "none";
+    }
+}
+
+const localChallengeToggle = document.getElementById("localChallengeToggle");
+if (localChallengeToggle) {
+    localChallengeToggle.addEventListener("change", async () => {
+        const enabled = localChallengeToggle.checked;
+        localChallengeToggle.disabled = true;
+        try {
+            const res = await fetch("/api/me/local-challenge", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${TOKEN}` },
+                body: JSON.stringify({ enabled }),
+            });
+            if (!res.ok) throw new Error("request failed");
+        } catch (e) {
+            localChallengeToggle.checked = !enabled;
+            alert("Не удалось сохранить настройку");
+        } finally {
+            localChallengeToggle.disabled = false;
+            loadChallenge();
+        }
+    });
+}
+
+async function loadStreak() {
+    if (VIEWING_OTHER) return;
+    if (dailyGoal <= 0) {
+        document.getElementById("streakRow").style.display = "none";
+        return;
+    }
+    let data;
+    try {
+        data = await api("/api/me/streak");
+    } catch (e) {
+        return;
+    }
+    const row = document.getElementById("streakRow");
+    const badge = document.getElementById("streakBadge");
+    const info = document.getElementById("streakInfo");
+    const reviveBtn = document.getElementById("reviveBtn");
+    if (!data || !data.enabled) return;
+
+    row.style.display = "flex";
+    badge.style.display = "inline-block";
+    badge.textContent = `🔥 Run: ${data.current_streak} дн.`;
+
+    const parts = [];
+    if (data.missing_days > 0) parts.push(`пропущено: ${data.missing_days}`);
+    if (data.payload_balance > 0) parts.push(`в запасе: ${data.payload_balance}`);
+    info.textContent = parts.join(" · ");
+    info.style.display = parts.length ? "inline" : "none";
+
+    if (data.payload_balance > 0 && data.missing_days > 0) {
+        reviveBtn.style.display = "inline-block";
+    } else {
+        reviveBtn.style.display = "none";
+    }
+}
+
+const reviveBtn = document.getElementById("reviveBtn");
+if (reviveBtn) {
+    reviveBtn.addEventListener("click", async () => {
+        reviveBtn.disabled = true;
+        reviveBtn.textContent = "🔄 Восстановление...";
+        try {
+            const res = await fetch("/api/me/streak/revive", {
+                method: "POST",
+                headers: { Authorization: `Bearer ${TOKEN}` },
+            });
+            if (!res.ok) {
+                let detail = "Не удалось восстановить стрик";
+                try {
+                    const j = await res.json();
+                    if (j && j.detail) detail = j.detail;
+                } catch (e) {}
+                alert(detail);
+            }
+        } catch (e) {
+            alert("Не удалось восстановить стрик");
+        } finally {
+            loadStreak();
+            loadProfile();
+        }
+    });
+}
+
 loadProfile();
+loadChallenge();
 </script>
 {% endblock %}

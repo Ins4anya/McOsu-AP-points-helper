@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>McOsu AP Overlay</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/overlay.css">
+    <style>
+        html, body {
+            background: transparent !important;
+            background-color: transparent !important;
+            color-scheme: dark;
+        }
+    </style>
+</head>
+<body style="background: transparent; background-color: transparent; margin: 0; overflow: hidden;">
+    <div class="ov-widget">
+        <div class="ov-popup" id="ovPopup">
+            <div class="ov-cover" id="ovCover"></div>
+            <div class="ov-popup-body">
+                <div class="ov-popup-title" id="ovTitle">—</div>
+                <div class="ov-popup-meta">
+                    <span class="ov-stars" id="ovStars">—</span>
+                    <span class="ov-grade" id="ovGrade">—</span>
+                    <span class="ov-acc" id="ovAcc">—</span>
+                    <span class="ov-combo" id="ovCombo">—</span>
+                    <span class="ov-mods" id="ovMods"></span>
+                </div>
+                <div class="ov-popup-bottom">
+                    <span class="ov-pp" id="ovPP">—</span>
+                    <span class="ov-ap" id="ovAP">—</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="ov-bar" id="ovBar">
+            <div class="ov-bar-item">
+                <span class="ov-bar-label">AP today</span>
+                <span class="ov-bar-value" id="ovTodayAP">—</span>
+            </div>
+            <div class="ov-progress" id="ovProgress" style="display:none">
+                <div class="ov-progress-track">
+                    <div class="ov-progress-fill" id="ovProgressFill"></div>
+                    <div class="ov-progress-marker" id="ovOnfireMarker"></div>
+                </div>
+                <span class="ov-progress-label" id="ovProgressLabel"></span>
+            </div>
+            <div class="ov-bar-item">
+                <span class="ov-bar-label">Streak</span>
+                <span class="ov-bar-value" id="ovStreak">—</span>
+            </div>
+            <div class="ov-bar-item">
+                <span class="ov-bar-label">Total AP</span>
+                <span class="ov-bar-value" id="ovTotalAP">—</span>
+            </div>
+        </div>
+
+        <div class="ov-last" id="ovLast">
+            <div class="ov-last-title" id="ovLastTitle">No score yet</div>
+            <div class="ov-last-meta">
+                <span class="ov-last-grade" id="ovLastGrade">—</span>
+                <span class="ov-last-acc" id="ovLastAcc">—</span>
+                <span class="ov-last-pp" id="ovLastPP">—</span>
+                <span class="ov-last-ap" id="ovLastAP">—</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const OSU_ID = {{ osu_id }};
+
+        const GRADE_COLORS = {
+            'XH': '#d6dae2', 'X': '#ffd700', 'SH': '#d6dae2', 'S': '#ffd700',
+            'A': '#00ff7f', 'B': '#1e90ff', 'C': '#a36cf5', 'D': '#ff0000',
+        };
+        const RANK_LABELS = { 'XH': 'SS', 'SH': 'S', 'X': 'SS', 'S': 'S' };
+        const MOD_COLORS = {
+            'HD': '#ff69b4', 'HR': '#ff8c00', 'DT': '#4A9BE8', 'NC': '#a36cf5',
+            'HT': '#e6edf5', 'EZ': '#00e0a0', 'NF': '#8b9cb4', 'FL': '#ffd700',
+            'SO': '#8b9cb4', 'SD': '#8b9cb4', 'PF': '#ffd700', 'FI': '#66ff99',
+            'RX': '#66ff99', '4K': '#8b9cb4', '5K': '#8b9cb4', '6K': '#8b9cb4',
+            '7K': '#8b9cb4',
+        };
+
+        let lastScoreId = null;
+        let dailyGoal = 0;
+        let onfireGoal = 0;
+        let hideTimer = null;
+
+        function fmt(n) {
+            return Number(n || 0).toLocaleString('ru-RU');
+        }
+
+        function animateCount(el, target, suffix) {
+            const dur = 700;
+            const from = 0;
+            const start = performance.now();
+            function step(t) {
+                const p = Math.min((t - start) / dur, 1);
+                const eased = 1 - Math.pow(1 - p, 3);
+                el.textContent = fmt(Math.floor(from + (target - from) * eased)) + suffix;
+                if (p < 1) requestAnimationFrame(step);
+            }
+            requestAnimationFrame(step);
+        }
+
+        function modsHtml(mods) {
+            const raw = String(mods || '').replace(/^\+/, '');
+            if (!raw || raw === 'NM') return '<span class="ov-mod" style="color:#8b9cb4">NM</span>';
+            const letters = raw.match(/[A-Z]{2}/g) || [];
+            if (!letters.length) return '<span class="ov-mod" style="color:#8b9cb4">' + raw + '</span>';
+            return letters.map(m =>
+                `<span class="ov-mod" style="color:${MOD_COLORS[m] || '#8b9cb4'}">${m}</span>`
+            ).join('');
+        }
+
+        function coverUrl(s) {
+            if (s.beatmap_url) {
+                const m = s.beatmap_url.match(/beatmapsets\/(\d+)/);
+                if (m) return `https://assets.ppy.sh/beatmaps/${m[1]}/covers/card@2x.jpg`;
+            }
+            return null;
+        }
+
+        function showScore(s) {
+            document.getElementById('ovTitle').textContent = s.beatmap_title || '';
+            document.getElementById('ovStars').textContent = '★ ' + (s.stars ? s.stars.toFixed(2) : '—');
+            const grade = (s.grade || s.rank || '').toUpperCase();
+            const gradeEl = document.getElementById('ovGrade');
+            gradeEl.textContent = RANK_LABELS[grade] || grade || '—';
+            gradeEl.style.color = GRADE_COLORS[grade] || '#fff';
+            document.getElementById('ovAcc').textContent = (s.accuracy * 100).toFixed(2) + '%';
+            document.getElementById('ovCombo').textContent = 'x' + s.max_combo;
+            document.getElementById('ovMods').innerHTML = modsHtml(s.mods);
+            document.getElementById('ovPP').textContent = (s.pp ? s.pp.toFixed(1) : '—') + ' PP';
+            animateCount(document.getElementById('ovAP'), Math.floor(s.ap), ' AP');
+
+            const coverEl = document.getElementById('ovCover');
+            const cover = coverUrl(s);
+            if (cover) {
+                coverEl.style.backgroundImage = `url(${cover})`;
+                coverEl.classList.add('has-cover');
+            } else {
+                coverEl.style.backgroundImage = '';
+                coverEl.classList.remove('has-cover');
+            }
+
+            const popup = document.getElementById('ovPopup');
+            popup.classList.remove('show');
+            void popup.offsetWidth;
+            popup.classList.add('show');
+            if (hideTimer) clearTimeout(hideTimer);
+            hideTimer = setTimeout(() => popup.classList.remove('show'), 6000);
+        }
+
+        function renderLast(s) {
+            document.getElementById('ovLastTitle').textContent =
+                s.beatmap_title || 'Unknown map';
+            const grade = (s.grade || s.rank || '').toUpperCase();
+            const gradeEl = document.getElementById('ovLastGrade');
+            gradeEl.textContent = RANK_LABELS[grade] || grade || '—';
+            gradeEl.style.color = GRADE_COLORS[grade] || '#fff';
+            document.getElementById('ovLastAcc').textContent =
+                ((s.accuracy || 0) * 100).toFixed(2) + '%';
+            document.getElementById('ovLastPP').textContent =
+                (s.pp ? s.pp.toFixed(1) : '—') + ' PP';
+            document.getElementById('ovLastAP').textContent =
+                '+' + Math.floor(s.ap || 0) + ' AP';
+        }
+
+        async function pollScore() {
+            try {
+                const res = await fetch(`/api/players/${OSU_ID}/scores?limit=1`);
+                if (!res.ok) return;
+                const data = await res.json();
+                if (!Array.isArray(data) || data.length === 0) return;
+                const latest = data[0];
+                if (lastScoreId === null) {
+                    lastScoreId = latest.id;
+                    renderLast(latest);
+                    return;
+                }
+                if (latest.id !== lastScoreId) {
+                    lastScoreId = latest.id;
+                    renderLast(latest);
+                    showScore(latest);
+                }
+            } catch (e) {}
+        }
+
+        function renderProgress(todayAP) {
+            const barMax = onfireGoal > 0 ? onfireGoal : dailyGoal;
+            const progress = document.getElementById('ovProgress');
+            if (barMax <= 0) {
+                progress.style.display = 'none';
+                return;
+            }
+            progress.style.display = 'flex';
+            const pct = Math.min(100, Math.round(todayAP / barMax * 100));
+            document.getElementById('ovProgressFill').style.width = pct + '%';
+            document.getElementById('ovProgressLabel').textContent =
+                `${fmt(Math.floor(todayAP))} / ${fmt(barMax)} AP`;
+            const marker = document.getElementById('ovOnfireMarker');
+            if (onfireGoal > dailyGoal && dailyGoal > 0) {
+                marker.style.left = Math.min(100, Math.round(dailyGoal / onfireGoal * 100)) + '%';
+                marker.style.display = 'block';
+            } else {
+                marker.style.display = 'none';
+            }
+        }
+
+        async function pollStats() {
+            try {
+                const [pRes, dRes] = await Promise.all([
+                    fetch(`/api/players/${OSU_ID}/profile`),
+                    fetch(`/api/players/${OSU_ID}/daily`),
+                ]);
+                if (pRes.ok) {
+                    const p = await pRes.json();
+                    document.getElementById('ovTotalAP').textContent = fmt(Math.floor(p.total_ap));
+                    const streak = p.streak || {};
+                    document.getElementById('ovStreak').textContent =
+                        streak.enabled ? `${streak.current_streak || 0} дн.` : '—';
+                    dailyGoal = p.daily_goal || 0;
+                    onfireGoal = p.onfire_goal || 0;
+                }
+                if (dRes.ok) {
+                    const daily = await dRes.json();
+                    const today = new Date().toISOString().slice(0, 10);
+                    const row = (daily || []).find(d => d.date === today);
+                    const todayAP = row ? row.total_ap : 0;
+                    document.getElementById('ovTodayAP').textContent = fmt(Math.floor(todayAP));
+                    renderProgress(todayAP);
+                }
+            } catch (e) {}
+        }
+
+        pollScore();
+        pollStats();
+        setInterval(pollScore, 2500);
+        setInterval(pollStats, 10000);
+    </script>
+</body>
+</html>

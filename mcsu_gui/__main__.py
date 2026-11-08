@@ -1,4 +1,5 @@
 import sys
+from pathlib import Path
 
 from nicegui import ui
 
@@ -25,7 +26,17 @@ def main():
         dark=True,
         show=False,
         port=GUI_PORT,
+        favicon=_icon_path(),
     )
+
+
+def _icon_path() -> str | None:
+    if getattr(sys, "frozen", False):
+        base = Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
+    else:
+        base = Path(__file__).resolve().parent.parent
+    candidate = base / "assets" / "favicon.ico"
+    return str(candidate) if candidate.exists() else None
 
 
 if __name__ == "__main__":

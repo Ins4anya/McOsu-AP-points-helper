@@ -1,0 +1,244 @@
+{% extends "base.html" %}
+{% block title %}Score — McOsu AP Tracker{% endblock %}
+{% block content %}
+<div id="scorePage">
+    <div class="score-hero">
+        <a href="javascript:history.back()" class="btn btn-sm btn-ghost">← Back</a>
+    </div>
+
+    <div class="score-card">
+        <div class="score-banner" id="scoreBanner">
+            <div class="score-banner-actions">
+                <a id="scoreLink" class="btn btn-sm banner-btn" href="#" target="_blank" rel="noopener noreferrer" style="display:none">Open on osu! ↗</a>
+            </div>
+            <div class="score-banner-body">
+                <h1 id="scoreTitle" class="score-banner-title">Loading...</h1>
+                <div class="score-banner-sub">
+                    <span id="scoreStars" class="score-stars">—</span>
+                    <span id="scoreSource" class="source-mini"></span>
+                    <span id="scoreDate" class="score-date"></span>
+                </div>
+            </div>
+        </div>
+
+        <div class="score-content">
+            <div class="score-headline">
+                <div class="score-ap">
+                    <span class="score-ap-label">Activity Points</span>
+                    <span class="score-ap-value" id="heroAP">—</span>
+                </div>
+                <div class="score-side">
+                    <div class="score-grade-badge" id="gradeBadge" style="display:none">
+                        <span class="grade-badge-letter" id="gradeLetter">—</span>
+                    </div>
+                    <div class="score-side-meta">
+                        <span class="side-meta-label">PP</span>
+                        <span class="side-meta-value" id="heroPP">—</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="score-divider"></div>
+
+            <div class="score-panel">
+                <div class="score-grid">
+                    <div class="score-metric">
+                        <span class="material-symbols-outlined metric-icon">link</span>
+                        <span class="metric-label">Combo</span>
+                        <span class="metric-value" id="tileCombo">—</span>
+                    </div>
+                    <div class="score-metric">
+                        <span class="material-symbols-outlined metric-icon">target</span>
+                        <span class="metric-label">Accuracy</span>
+                        <span class="metric-value" id="tileAcc">—</span>
+                    </div>
+                    <div class="score-metric">
+                        <span class="material-symbols-outlined metric-icon">tune</span>
+                        <span class="metric-label">Mods</span>
+                        <span class="metric-value metric-mods" id="tileMods">—</span>
+                    </div>
+                    <div class="score-metric">
+                        <span class="material-symbols-outlined metric-icon">star</span>
+                        <span class="metric-label">Stars</span>
+                        <span class="metric-value" id="tileStars">—</span>
+                    </div>
+                </div>
+
+                <div class="acc-bar" id="accBarWrap">
+                    <div class="acc-bar-head">
+                        <span class="metric-label">Accuracy</span>
+                        <span id="accBarText">—</span>
+                    </div>
+                    <div class="acc-bar-track">
+                        <div class="acc-bar-fill" id="accBarFill"></div>
+                    </div>
+                </div>
+
+                <div class="hits-row" id="hitsRow">
+                    <div class="hit-cell hit-300"><span class="hit-label">300</span><span class="hit-value" id="hit300">—</span></div>
+                    <div class="hit-cell hit-100"><span class="hit-label">100</span><span class="hit-value" id="hit100">—</span></div>
+                    <div class="hit-cell hit-50"><span class="hit-label">50</span><span class="hit-value" id="hit50">—</span></div>
+                    <div class="hit-cell hit-miss"><span class="hit-label">Miss</span><span class="hit-value" id="hitMiss">—</span></div>
+                </div>
+            </div>
+
+            <div class="score-panel">
+                <h3 class="score-panel-title">Breakdown</h3>
+                <div class="score-grid">
+                    <div class="score-metric">
+                        <span class="material-symbols-outlined metric-icon">timer</span>
+                        <span class="metric-label">AR</span>
+                        <span class="metric-value" id="tileAR">—</span>
+                    </div>
+                    <div class="score-metric">
+                        <span class="material-symbols-outlined metric-icon">density_small</span>
+                        <span class="metric-label">Density</span>
+                        <span class="metric-value" id="tileDensity">—</span>
+                    </div>
+                    <div class="score-metric">
+                        <span class="material-symbols-outlined metric-icon">center_focus_strong</span>
+                        <span class="metric-label">Aim</span>
+                        <span class="metric-value" id="tileAim">—</span>
+                    </div>
+                    <div class="score-metric">
+                        <span class="material-symbols-outlined metric-icon">speed</span>
+                        <span class="metric-label">Speed</span>
+                        <span class="metric-value" id="tileSpeed">—</span>
+                    </div>
+                </div>
+
+                <div class="diff-row">
+                    <div class="diff-cell"><span class="diff-label">CS</span><span class="diff-value" id="diffCS">—</span></div>
+                    <div class="diff-cell"><span class="diff-label">AR</span><span class="diff-value" id="diffAR">—</span></div>
+                    <div class="diff-cell"><span class="diff-label">OD</span><span class="diff-value" id="diffOD">—</span></div>
+                    <div class="diff-cell"><span class="diff-label">HP</span><span class="diff-value" id="diffHP">—</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+const SCORE_ID = {{ score_id }};
+const GRADE_COLORS = {
+    'XH': '#d6dae2', 'X': '#ffd700', 'SH': '#d6dae2', 'S': '#ffd700',
+    'A': '#00ff7f', 'B': '#1e90ff', 'C': '#a36cf5', 'D': '#ff0000',
+};
+const MOD_COLORS = {
+    'HD': '#ff69b4', 'HR': '#ff8c00', 'DT': '#4A9BE8', 'NC': '#a36cf5',
+    'HT': '#e6edf5', 'EZ': '#00e0a0', 'NF': '#8b9cb4', 'FL': '#ffd700',
+    'SO': '#8b9cb4', 'SD': '#8b9cb4', 'PF': '#ffd700', 'FI': '#66ff99',
+    'RX': '#66ff99', '4K': '#8b9cb4', '5K': '#8b9cb4', '6K': '#8b9cb4',
+    '7K': '#8b9cb4',
+};
+
+function modsHtml(mods) {
+    const raw = String(mods || '').replace(/^\+/, '');
+    if (!raw || raw === 'NM') return '<span style="color:#8b9cb4">NM</span>';
+    const m = raw.match(/^([A-Z]+)?(?:\s*(.+))?$/);
+    if (!m) return raw;
+    let html = '';
+    if (m[1]) {
+        html += (m[1].match(/[A-Z]{2}/g) || []).map(mm => {
+            const c = MOD_COLORS[mm] || '#8b9cb4';
+            return `<span class="mod-badge" style="color:${c}">${mm}</span>`;
+        }).join('');
+    }
+    if (m[2]) html += `<span style="color:#8b9cb4">${m[2]}</span>`;
+    return html;
+}
+
+function coverUrl(s) {
+    if (!s.beatmap_url) return null;
+    const m = s.beatmap_url.match(/beatmapsets\/(\d+)/);
+    if (!m) return null;
+    return `https://assets.ppy.sh/beatmaps/${m[1]}/covers/cover@2x.jpg`;
+}
+
+function hasHits(s) {
+    return (s.count300 + s.count100 + s.count50 + s.count_miss) > 0;
+}
+
+function fmt(v, suffix = '') {
+    return (typeof v === 'number') ? v.toLocaleString('ru-RU') + suffix : '—';
+}
+
+async function loadScore() {
+    try {
+        const res = await fetch(`/api/score/${SCORE_ID}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const s = await res.json();
+
+        document.getElementById("scoreTitle").textContent = s.beatmap_title;
+        document.getElementById("scoreStars").textContent = s.stars ? '★ ' + s.stars.toFixed(2) : '—';
+
+        const src = document.getElementById("scoreSource");
+        src.textContent = s.source === 'api' ? 'osu! API' : 'McOsu';
+        src.classList.add(s.source === 'api' ? 'src-api' : 'src-mcsu');
+
+        document.getElementById("scoreDate").textContent =
+            s.played_at ? new Date(s.played_at).toLocaleString('ru-RU') : '';
+
+        const link = document.getElementById("scoreLink");
+        if (s.beatmap_url) {
+            link.href = s.beatmap_url;
+            link.style.display = "inline-block";
+        }
+
+        const cu = coverUrl(s);
+        if (cu) {
+            const banner = document.getElementById("scoreBanner");
+            const img = new Image();
+            img.onload = () => {
+                banner.style.backgroundImage = `url("${cu}")`;
+                banner.classList.add("has-cover");
+            };
+            img.src = cu;
+        }
+
+        document.getElementById("heroAP").textContent = Math.floor(s.ap);
+        document.getElementById("heroPP").textContent = s.pp ? s.pp.toFixed(1) : '—';
+
+        const g = s.grade || '';
+        if (g) {
+            const badge = document.getElementById("gradeBadge");
+            badge.style.display = "flex";
+            badge.style.borderColor = GRADE_COLORS[g] || '#fff';
+            document.getElementById("gradeLetter").textContent = g;
+            document.getElementById("gradeLetter").style.color = GRADE_COLORS[g] || '#fff';
+        }
+
+        document.getElementById("tileCombo").textContent = 'x' + fmt(s.max_combo) + ' / ' + fmt(s.max_possible_combo);
+        document.getElementById("tileAcc").textContent = (s.accuracy * 100).toFixed(2) + '%';
+        document.getElementById("tileMods").innerHTML = modsHtml(s.mods);
+        document.getElementById("tileStars").textContent = s.stars ? s.stars.toFixed(2) : '—';
+
+        const accPct = Math.min(100, Math.max(0, s.accuracy * 100));
+        document.getElementById("accBarText").textContent = accPct.toFixed(2) + '%';
+        document.getElementById("accBarFill").style.width = accPct + '%';
+
+        if (hasHits(s)) {
+            document.getElementById("hit300").textContent = s.count300;
+            document.getElementById("hit100").textContent = s.count100;
+            document.getElementById("hit50").textContent = s.count50;
+            document.getElementById("hitMiss").textContent = s.count_miss;
+        }
+
+        document.getElementById("tileAR").textContent = s.ar ? s.ar.toFixed(1) : '—';
+        document.getElementById("tileDensity").textContent = s.density ? s.density.toFixed(1) + ' obj/s' : '—';
+        document.getElementById("tileAim").textContent = s.aim ? s.aim.toFixed(2) : '—';
+        document.getElementById("tileSpeed").textContent = s.speed_mult ? s.speed_mult.toFixed(2) + 'x' : '—';
+
+        document.getElementById("diffCS").textContent = s.eff_cs ? s.eff_cs.toFixed(1) : '—';
+        document.getElementById("diffAR").textContent = s.eff_ar ? s.eff_ar.toFixed(1) : '—';
+        document.getElementById("diffOD").textContent = s.eff_od ? s.eff_od.toFixed(1) : '—';
+        document.getElementById("diffHP").textContent = s.eff_hp ? s.eff_hp.toFixed(1) : '—';
+    } catch (e) {
+        document.getElementById("scoreTitle").textContent = "Score not found";
+        document.getElementById("hitsRow").style.display = "none";
+    }
+}
+
+loadScore();
+</script>
+{% endblock %}

@@ -8,6 +8,7 @@ from typing import Optional
 
 import aiohttp
 
+from .mods import mods_strings_to_int
 from .models import BeatmapMeta, OsuScore
 
 
@@ -154,27 +155,6 @@ def _build_md5_index(songs_dir: Path, index_path: Path):
     return index
 
 
-MODS_STRING_TO_BIT = {
-    "NF": 1 << 0, "EZ": 1 << 1, "TD": 1 << 2, "HD": 1 << 3,
-    "HR": 1 << 4, "SD": 1 << 5, "DT": 1 << 6, "RX": 1 << 7,
-    "HT": 1 << 8, "NC": 1 << 9, "FL": 1 << 10, "AU": 1 << 11,
-    "SO": 1 << 12, "AP": 1 << 13, "PF": 1 << 14, "4K": 1 << 15,
-    "5K": 1 << 16, "6K": 1 << 17, "7K": 1 << 18, "8K": 1 << 19,
-    "FI": 1 << 20, "RN": 1 << 21, "CN": 1 << 22, "TP": 1 << 23,
-    "9K": 1 << 24, "KC": 1 << 25, "1K": 1 << 26, "3K": 1 << 27,
-    "2K": 1 << 28, "V2": 1 << 29, "MR": 1 << 30,
-}
-
-
-def _mods_strings_to_int(mods: list[str]) -> int:
-    bits = 0
-    for m in mods:
-        bit = MODS_STRING_TO_BIT.get(m)
-        if bit is not None:
-            bits |= bit
-    return bits
-
-
 def _parse_iso_timestamp(iso: str) -> int:
     if not iso:
         return int(time.time())
@@ -188,7 +168,7 @@ def _parse_iso_timestamp(iso: str) -> int:
 def _api_score_to_osu_score(api_score: dict) -> OsuScore:
     stats = api_score.get("statistics", {})
     mods_str_list = api_score.get("mods", [])
-    mods_int = _mods_strings_to_int(mods_str_list)
+    mods_int = mods_strings_to_int(mods_str_list)
     created_at = api_score.get("created_at", "")
     timestamp = _parse_iso_timestamp(created_at)
     max_combo = api_score.get("max_combo", 0)

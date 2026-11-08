@@ -70,7 +70,9 @@ html, body {{
     border-right: 1px solid {GLASS_BORDER};
 }}
 .sidebar-tabs .q-tab {{
-    justify-content: flex-start;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
     padding: 9px 14px;
     margin: 2px 10px;
     border-radius: 8px;
@@ -79,6 +81,13 @@ html, body {{
     border: 1px solid rgba(255,255,255,0.08);
     font-size: 13px;
     font-weight: 600;
+}}
+.sidebar-tabs .q-tab__content {{
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    text-align: center;
 }}
 .sidebar-tabs .q-tab:hover {{
     background: rgba(255,255,255,0.09);
@@ -92,6 +101,21 @@ html, body {{
 .sidebar-tabs .q-tab__label {{
     font-size: 13px;
     font-weight: 600;
+    text-align: center;
+}}
+
+/* Nested Ranked submenu */
+.ranked-submenu-btn {{
+    box-sizing: border-box;
+    min-width: 0;
+}}
+.ranked-submenu-btn .q-btn__content {{
+    justify-content: flex-start;
+    text-align: left;
+    width: 100%;
+}}
+.ranked-submenu-btn .q-btn__content > * {{
+    min-width: 0;
 }}
 
 /* header status chips */
@@ -178,6 +202,18 @@ html, body {{
 
 .mono {{
     font-family: 'JetBrains Mono', Consolas, monospace;
+}}
+
+.ap-badge {{
+    width: 42px;
+    height: 42px;
+    flex-shrink: 0;
+    line-height: 0;
+}}
+.ap-badge svg {{
+    width: 42px;
+    height: 42px;
+    display: block;
 }}
 </style>
 """

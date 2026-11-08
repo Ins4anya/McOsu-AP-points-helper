@@ -1,8 +1,8 @@
 import customtkinter as ctk
 import threading
 import webbrowser
-from pathlib import Path
 
+from mcsu_bot.paths import ap_db_file
 from mcsu_bot.server_client import (
     check_auth,
     get_server_url,
@@ -48,7 +48,13 @@ class ControlTab(ctk.CTkFrame):
         ctk.CTkLabel(card, text="Source:", font=ctk.CTkFont(size=14),
                      text_color="#aaa").pack(side="left", padx=(16, 8), pady=12)
 
-        self.source_var = ctk.StringVar(value=self.config.source)
+        _source = self.config.source
+        if _source == "osu":
+            _source = "api"
+        if _source not in ("mcsu", "api"):
+            _source = "mcsu"
+        self.config.source = _source
+        self.source_var = ctk.StringVar(value=_source)
         self.username_var = ctk.StringVar(value=self.config.osu_username)
 
         def _on_source_change():
@@ -183,9 +189,7 @@ class ControlTab(ctk.CTkFrame):
             return
         self.sync_all_btn.configure(state="disabled", text="Syncing...")
         self._on_output("Starting full sync...")
-        ap_db_path = self.config.ap_db_path or (
-            Path(__file__).resolve().parent.parent.parent / "scores_ap.db"
-        )
+        ap_db_path = self.config.ap_db_path or ap_db_file()
         source = self.source_var.get()
 
         def _progress(i, total):

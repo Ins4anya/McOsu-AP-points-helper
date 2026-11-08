@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+from .mods import DT_BIT, FL_BIT, HD_BIT, HT_BIT, NC_BIT, has_mod, mods_to_string
 from .models import OsuScore, BeatmapMeta, PPResult
 
 SCALE = 0.1
@@ -18,10 +19,6 @@ SCORE_BONUS_PER_MILLION = 1_000_000
 SCORE_BONUS_STEP = 0.01
 
 MISS_PENALTY_FACTOR = 0.3
-
-DT_BIT = 1 << 6
-HT_BIT = 1 << 8
-NC_BIT = 1 << 9
 
 MOD_BONUSES = {
     1 << 0: 0,
@@ -69,63 +66,26 @@ class APBreakdown:
     ap: float
 
 
-def _has_bit(mods: int, bit: int) -> bool:
-    return bool(mods & bit)
-
-
 def _mod_multiplier(mods: int, speed_mult: Optional[float] = None) -> float:
     mult = 1.0
     rate = speed_mult if speed_mult is not None and speed_mult > 0 else 1.0
     for bit, bonus in MOD_BONUSES.items():
         if bit in (DT_BIT, HT_BIT, NC_BIT):
             continue
-        if _has_bit(mods, bit):
+        if has_mod(mods, bit):
             mult += bonus
     if rate != 1.0:
         bonus = 0.15 * (rate - 1.0) / 0.5
         if bonus > 0:
             mult += bonus
     elif speed_mult is None:
-        if _has_bit(mods, NC_BIT) or _has_bit(mods, DT_BIT):
+        if has_mod(mods, NC_BIT) or has_mod(mods, DT_BIT):
             mult += MOD_BONUSES.get(DT_BIT, 0.15)
     return mult
 
 
-def _mods_to_string(mods: int, speed_mult: Optional[float] = None) -> str:
-    if mods == 0 and (speed_mult is None or abs(speed_mult - 1.0) < 0.005):
-        return "NM"
-    MODS_BITMAP = {
-        1 << 0: "NF", 1 << 1: "EZ", 1 << 2: "TD", 1 << 3: "HD",
-        1 << 4: "HR", 1 << 5: "SD", 1 << 6: "DT", 1 << 7: "RX",
-        1 << 8: "HT", 1 << 9: "NC", 1 << 10: "FL", 1 << 11: "AU",
-        1 << 12: "SO", 1 << 13: "AP", 1 << 14: "PF", 1 << 15: "4K",
-        1 << 16: "5K", 1 << 17: "6K", 1 << 18: "7K", 1 << 19: "8K",
-        1 << 20: "FI", 1 << 21: "RN", 1 << 22: "CN", 1 << 23: "TP",
-        1 << 24: "9K", 1 << 25: "KC", 1 << 26: "1K", 1 << 27: "3K",
-        1 << 28: "2K", 1 << 29: "V2", 1 << 30: "MR",
-    }
-    result = []
-    for bit, name in MODS_BITMAP.items():
-        if mods & bit:
-            result.append(name)
-    if "NC" in result and "DT" in result:
-        result.remove("DT")
-    if "PF" in result and "SD" in result:
-        result.remove("SD")
-    tag = ""
-    if speed_mult is not None and speed_mult > 0:
-        expected = 1.5 if (mods & (DT_BIT | NC_BIT)) else (0.75 if (mods & HT_BIT) else 1.0)
-        if abs(speed_mult - expected) >= 0.005:
-            tag = f"{speed_mult:g}x"
-    if not result and not tag:
-        return "NM"
-    if not result:
-        return f"+{tag}"
-    return "+" + "".join(result) + (f" {tag}" if tag else "")
-
-
 def _calculate_grade(count300: int, total_hits: int, count50: int, misses: int, mods: int) -> str:
-    has_silver = _has_bit(mods, 1 << 3) or _has_bit(mods, 1 << 10)
+    has_silver = has_mod(mods, HD_BIT) or has_mod(mods, FL_BIT)
     no_misses = misses == 0
 
     p300 = count300 / total_hits if total_hits > 0 else 0
@@ -204,7 +164,7 @@ def explain_ap(score: OsuScore, meta: BeatmapMeta, accuracy: float,
         score_bonus = (score.score / SCORE_BONUS_PER_MILLION) * SCORE_BONUS_STEP
 
     mod_mult = _mod_multiplier(score.mods, score.speed_mult)
-    mods_str = _mods_to_string(score.mods, score.speed_mult)
+    mods_str = mods_to_string(score.mods, score.speed_mult)
     grade = _calculate_grade(score.count300, total_hits, score.count50, score.count_miss, score.mods)
     rank_bonus = RANK_BONUSES.get(grade, 0.0)
 

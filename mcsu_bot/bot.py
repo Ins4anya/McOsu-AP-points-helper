@@ -1,4 +1,7 @@
+import asyncio
 import os
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import discord
@@ -8,12 +11,33 @@ from .config import Config
 from .db_reader import read_latest_score as read_latest_score_mcsu
 from .osu_api import OsuAPI, _api_score_to_osu_score, _apply_object_weights
 from .pp_calculator import calculate_pp
-from .embed_builder import build_embed
-from .ap_calculator import calculate_ap, _calculate_grade
+from .embed_builder import (
+    build_embed,
+    build_ap_breakdown_embed,
+    build_profile_embed,
+    build_top_embed,
+    build_best_embed,
+    build_daily_embed,
+    build_ranked_embed,
+)
+from .ap_calculator import _calculate_grade, explain_ap
 from .database import Database
+from .models import OsuScore, BeatmapMeta, PPResult
+from .profile import calculate_profile
+from .paths import ap_db_file
+from .server_client import check_auth, get_ranked, get_ranked_stats, get_server_url
 
 
 RANKS_TXT = Path(__file__).resolve().parent.parent / "Ranks.txt"
+
+
+@dataclass
+class ScoreContext:
+    score: OsuScore
+    meta: BeatmapMeta
+    pp_result: PPResult
+    ap: float
+    breakdown: "APBreakdown"
 
 
 class McOsuBot(commands.Bot):
@@ -24,7 +48,9 @@ class McOsuBot(commands.Bot):
         self.config = config
         self.osu_api = OsuAPI(config.osu_client_id, config.osu_client_secret, config.osu_cache_dir, config.songs_dir)
         self.try_count = 0
-        self.db = Database(config.ap_db_path or (Path(__file__).resolve().parent.parent / "scores_ap.db"))
+        self.db = Database(config.ap_db_path or ap_db_file())
+        self.last_scores: dict[int, ScoreContext] = {}
+        self.last_messages: dict[int, ScoreContext] = {}
 
     async def setup_hook(self):
         self.db.connect()
@@ -37,6 +63,8 @@ class McOsuBot(commands.Bot):
 
 
 class OsuCommands(commands.Cog):
+    AP_EMOJI = "📊"
+
     def __init__(self, bot: McOsuBot):
         self.bot = bot
 
@@ -104,8 +132,13 @@ class OsuCommands(commands.Cog):
                 return
 
             meta = _apply_object_weights(meta, osu_file)
+            if score.max_possible_combo <= 0 and pp_result.max_combo > 0:
+                score.max_possible_combo = pp_result.max_combo
 
-            ap = calculate_ap(score, meta, pp_result.accuracy, pp_result.star_rating_mods, pp_result)
+            breakdown = explain_ap(
+                score, meta, pp_result.accuracy, pp_result.star_rating_mods, pp_result
+            )
+            ap = breakdown.ap
             total_hits = score.count300 + score.count100 + score.count50 + score.count_miss
             grade = _calculate_grade(score.count300, total_hits, score.count50, score.count_miss, score.mods)
             dupe = False
@@ -121,7 +154,135 @@ class OsuCommands(commands.Cog):
             if dupe:
                 embed.set_footer(text=f"Duplicate — not saved  •  Try #{self.bot.try_count}", icon_url=None)
                 embed.timestamp = discord.utils.utcnow()
+
+            context = ScoreContext(
+                score=score,
+                meta=meta,
+                pp_result=pp_result,
+                ap=ap,
+                breakdown=breakdown,
+            )
+            self.bot.last_scores[ctx.channel.id] = context
+
+            message = await ctx.send(embed=embed)
+            self.bot.last_messages[message.id] = context
+            try:
+                await message.add_reaction(self.AP_EMOJI)
+            except Exception as e:
+                print(f"Reaction add warning: {e}")
+
+    @commands.command(name="ap", aliases=["breakdown"])
+    async def ap_breakdown(self, ctx: commands.Context):
+        context = self.bot.last_scores.get(ctx.channel.id)
+        if context is None:
+            await ctx.send("Сначала отправьте `!rs` / `!last`, чтобы получить скор.")
+            return
+        embed = build_ap_breakdown_embed(context.breakdown, context.score, context.meta)
+        await ctx.send(embed=embed)
+
+    @commands.command(name="profile", aliases=["p"])
+    async def profile(self, ctx: commands.Context):
+        async with ctx.typing():
+            try:
+                profile = await asyncio.to_thread(
+                    calculate_profile,
+                    self.bot.config.scores_db_path,
+                    self.bot.config.cfg_dir,
+                    getattr(self.bot.config, "source", "mcsu"),
+                )
+            except Exception as e:
+                await ctx.send(f"Profile error: {e}")
+                return
+            name = profile.player_name or self.bot.config.osu_username or "Unknown"
+        embed = build_profile_embed(profile, name)
+        await ctx.send(embed=embed)
+
+    @commands.command(name="top")
+    async def top(self, ctx: commands.Context, limit: int = 5):
+        limit = max(1, min(limit, 10))
+        async with ctx.typing():
+            scores = self.bot.db.get_top_scores(limit)
+            if not scores:
+                await ctx.send("В базе пока нет скоров.")
+                return
+        embed = build_top_embed(scores, limit)
+        await ctx.send(embed=embed)
+
+    @commands.command(name="best")
+    async def best(self, ctx: commands.Context):
+        async with ctx.typing():
+            row = self.bot.db.get_best_score()
+            if row is None:
+                await ctx.send("В базе пока нет скоров.")
+                return
+        embed = build_best_embed(row)
+        await ctx.send(embed=embed)
+
+    @commands.command(name="daily")
+    async def daily(self, ctx: commands.Context):
+        async with ctx.typing():
+            now = datetime.now()
+            start = datetime(now.year, now.month, now.day)
+            end = start + timedelta(days=1)
+            summary = self.bot.db.get_daily_summary(
+                int(start.timestamp()), int(end.timestamp())
+            )
+        embed = build_daily_embed(summary, start.strftime("%d.%m.%Y"))
+        await ctx.send(embed=embed)
+
+    @commands.command(name="rank", aliases=["ranked"])
+    async def rank(self, ctx: commands.Context):
+        async with ctx.typing():
+            server_url = get_server_url()
+            if not server_url or not check_auth(server_url):
+                await ctx.send(
+                    "Нет входа на сервер — войдите через GUI (Control → Server Sync → Login via osu!)."
+                )
+                return
+
+            ok, stats = get_ranked_stats(server_url)
+            if not ok:
+                await ctx.send(f"Сервер недоступен: {stats}")
+                return
+
+            if not isinstance(stats, dict) or not stats.get("enabled", False):
+                await ctx.send("Режим Ranked выключен на сервере.")
+                return
+
+            if not stats.get("total_settled"):
+                await ctx.send("Пока нет завершённых заданий.")
+                return
+
+            active = None
+            ok2, state = get_ranked(server_url)
+            if ok2 and isinstance(state, dict):
+                active = state.get("active")
+
+            embed = build_ranked_embed(
+                stats, active=active, display_name=ctx.author.display_name
+            )
             await ctx.send(embed=embed)
+
+    @commands.Cog.listener()
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
+        if payload.user_id == self.bot.user.id:
+            return
+        if payload.emoji.name != self.AP_EMOJI:
+            return
+        context = self.bot.last_messages.get(payload.message_id)
+        if context is None:
+            return
+        channel = self.bot.get_channel(payload.channel_id)
+        if channel is None:
+            return
+        try:
+            message = await channel.fetch_message(payload.message_id)
+            user = payload.member or await self.bot.fetch_user(payload.user_id)
+            await message.remove_reaction(payload.emoji, user)
+        except Exception as e:
+            print(f"Reaction cleanup warning: {e}")
+        embed = build_ap_breakdown_embed(context.breakdown, context.score, context.meta)
+        await channel.send(embed=embed)
 
 
 async def run_bot(config: Config):

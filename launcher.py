@@ -27,6 +27,7 @@ def main():
         dark=True,
         show=False,
         port=GUI_PORT,
+        favicon=_icon_path(),
     )
 
 
@@ -48,6 +49,21 @@ def main_legacy():
 
     app = App(config)
     app.mainloop()
+
+
+def _resource_path(*parts: str) -> Path:
+    """Resolve a bundled resource, whether frozen (onedir) or running from source."""
+    if getattr(sys, "frozen", False):
+        base = Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
+    else:
+        base = Path(__file__).resolve().parent
+    return base.joinpath(*parts)
+
+
+def _icon_path() -> str | None:
+    """Return the .ico path for the native window icon, or None if absent."""
+    candidate = _resource_path("assets", "favicon.ico")
+    return str(candidate) if candidate.exists() else None
 
 
 def _config_path() -> str:

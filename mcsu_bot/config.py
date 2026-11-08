@@ -19,6 +19,7 @@ class Config:
     osu_username: str = ""
     server_url: str = ""
     server_token: str = ""
+    share_local_beatmaps: bool = False
 
 
 def load_config(path: str = "config.json") -> Config:
@@ -41,6 +42,12 @@ def load_config(path: str = "config.json") -> Config:
         cfg_dir = scores_db_path.parent / "cfg"
     else:
         cfg_dir = _resolve(cfg_dir)
+    raw_source = str(data.get("source", "mcsu")).strip().lower()
+    if raw_source == "osu":
+        raw_source = "api"
+    if raw_source not in ("mcsu", "api"):
+        raw_source = "mcsu"
+
     return Config(
         discord_token=data["discord_token"],
         osu_client_id=data["osu_client_id"],
@@ -49,9 +56,11 @@ def load_config(path: str = "config.json") -> Config:
         osu_cache_dir=_resolve(data.get("osu_cache_dir", "cache/osu_files")),
         songs_dir=_resolve(songs_dir),
         cfg_dir=Path(cfg_dir),
+        source=raw_source,
         command_prefix=data.get("command_prefix", "!"),
         ap_db_path=_resolve(ap_db_path),
         osu_username=data.get("osu_username", ""),
         server_url=data.get("server_url", ""),
         server_token=data.get("server_token", ""),
+        share_local_beatmaps=bool(data.get("share_local_beatmaps", False)),
     )

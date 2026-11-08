@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Ranked — McOsu AP Tracker{% endblock %}
+{% block content %}
+<div id="rankedPage">
+    <div class="hero">
+        <div class="hero-badge">ELO · соревновательный режим</div>
+        <h1>Ranked <span class="accent">ELO</span></h1>
+        <p class="hero-sub">Проходи задания по точности, поднимай ELO<br>и расти от Базового до Легенды.</p>
+        {% if logged_in %}
+        <a href="/profile" class="btn">Открыть профиль</a>
+        {% else %}
+        <a href="/auth/login" class="btn">Войти через osu!</a>
+        {% endif %}
+    </div>
+
+    <div class="ranked-section" id="rankedStatus">
+        <p class="empty">Загрузка…</p>
+    </div>
+
+    <div class="ranked-section" id="rankedDisabled" style="display:none">
+        <p class="ranked-empty">Ranked сейчас недоступен.</p>
+    </div>
+
+    <div id="rankedContent" style="display:none">
+        <div class="ranked-section">
+            <h2 class="ranked-h2">Как это работает</h2>
+            <div class="ranked-howto">
+                <div class="feature-card">
+                    <div class="feature-icon">🎯</div>
+                    <h3>Получи задание</h3>
+                    <p>Сервер подбирает карту в твоём диапазоне звёзд по текущему званию.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🕹️</div>
+                    <h3>Сыграй карту</h3>
+                    <p>Пройди её и отправь скор из McOsuTracker — задание закроется автоматически. Фейл, сдача или таймаут тоже закроют его, но со штрафом.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">📈</div>
+                    <h3>Меняй ELO</h3>
+                    <p>Изменение ELO зависит от точности: высокая точность даёт плюс, низкая может отнять ELO.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🏆</div>
+                    <h3>Расти по званиям</h3>
+                    <p>От Базового до Легенды — диапазон звёзд растёт вместе с тобой.</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="ranked-section">
+            <h2 class="ranked-h2">Звания</h2>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Звание</th>
+                            <th class="col-num">ELO</th>
+                            <th class="col-num">Диапазон ★</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rankedTiers"></tbody>
+                </table>
+            </div>
+            <p class="ranked-sub" id="rankedTierNote"></p>
+        </div>
+
+        <div class="ranked-section">
+            <h2 class="ranked-h2">Изменение ELO за точность</h2>
+            <p class="ranked-sub" id="rankedRewardLabel"></p>
+            <div class="ranked-reward" id="rankedReward"></div>
+        </div>
+
+        <div class="ranked-section">
+            <h2 class="ranked-h2">Модификаторы и штрафы</h2>
+            <div class="ranked-mods" id="rankedMods"></div>
+        </div>
+
+        <div class="ranked-section">
+            <h2 class="ranked-h2">Лидерборд</h2>
+            <div class="ranked-podium" id="rankedPodium"></div>
+            <div class="table-wrap">
+                <table id="rankedTable" style="display:none">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Игрок</th>
+                            <th>Звание</th>
+                            <th class="col-num">ELO</th>
+                            <th class="col-num">W / L / D</th>
+                            <th class="col-num">Win rate</th>
+                        </tr>
+                    </thead>
+                    <tbody id="rankedBody"></tbody>
+                </table>
+            </div>
+            <p class="empty" id="rankedEmpty" style="display:none">Пока никто не сыграл в Ranked.</p>
+            <div class="ranked-more-wrap">
+                <button class="btn btn-sm btn-ghost" id="rankedMore" style="display:none">Показать ещё</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="/static/ranked.js?v=10"></script>
+<script>initRankedPage();</script>
+{% endblock %}

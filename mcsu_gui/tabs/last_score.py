@@ -5,7 +5,7 @@ from nicegui import ui
 from mcsu_bot.osu_api import OsuAPI
 from mcsu_bot.profile import calculate_profile
 from mcsu_bot.server_client import check_auth, get_server_url, sync_score
-from mcsu_gui.state import bus
+from mcsu_gui.state import bus, resolve_overlay_url
 from mcsu_gui.theme import (
     ACCENT,
     ERROR,
@@ -38,10 +38,12 @@ class LastScoreTab:
         bus.subscribe("ls_status", self._on_status_event, key="last:ls_status")
         bus.subscribe("profile_result", self._on_profile_result, key="last:profile_result")
         bus.subscribe("score_sync_done", self._sync_done, key="last:score_sync_done")
+        bus.subscribe("overlay_status", self._on_overlay_status, key="last:overlay_status")
 
     def _setup_ui(self):
         self._build_header()
         self._build_source_row()
+        self._build_overlay_area()
         self._build_title_tile()
         self._build_stats_grid()
         self._build_hits_row()
@@ -85,6 +87,9 @@ class LastScoreTab:
             self.source_radio.on_value_change(self._on_source_change)
 
     def _on_source_change(self, value):
+        value = getattr(value, "value", value)
+        if value not in ("mcsu", "api"):
+            value = self.state.source if self.state.source in ("mcsu", "api") else "mcsu"
         self.state.source = value
         if value == "api":
             self.username_input.enable()
@@ -93,6 +98,63 @@ class LastScoreTab:
 
     def _on_username_change(self, e):
         self.state.username = e.value
+        self.state.overlay_osu_id = None
+        self.state.overlay_url = ""
+        if self.state.overlay_enabled:
+            self._refresh_overlay()
+
+    def _build_overlay_area(self):
+        self.overlay_frame = ui.element("div").classes("w-full h-64 overflow-hidden").style(
+            "border: 1px solid #2a2a3e; border-radius: 10px; background: transparent;"
+        )
+        with self.overlay_frame:
+            self.overlay_placeholder = ui.html("").classes("w-full h-full")
+            self.overlay_iframe = ui.element("iframe").classes("w-full h-full").style(
+                "border:0; background:transparent !important; "
+                "background-color:transparent !important; color-scheme:dark;"
+            )
+            self.overlay_iframe.set_visibility(False)
+        self.overlay_frame.set_visibility(self.state.overlay_enabled)
+
+    def _on_overlay_status(self, payload):
+        text = str(payload.get("text", "")) if isinstance(payload, dict) else ""
+        enabled = text.startswith("Active")
+        self.state.overlay_enabled = enabled
+        self.overlay_frame.set_visibility(enabled)
+        if enabled:
+            self._refresh_overlay()
+
+    def _refresh_overlay(self, attempt: int = 0):
+        print(f"DEBUG: _refresh_overlay called. Username: {self.state.username}", flush=True)
+        if not self.state.overlay_enabled:
+            return
+        if not (self.state.username or "").strip():
+            self._show_overlay_error("Enter an osu! username in the User field")
+            return
+        url = resolve_overlay_url(self.state)
+        if not url:
+            self._show_overlay_error("Player not found in local DB")
+            if attempt < 10:
+                ui.timer(1.0, lambda: self._refresh_overlay(attempt + 1), once=True)
+            return
+        print(f"DEBUG: Fetching URL: {url}", flush=True)
+        self.overlay_placeholder.set_visibility(False)
+        self.overlay_iframe.props(
+            f'src="{url}" allow="fullscreen" allowtransparency="true" '
+            'frameborder="0"'
+        )
+        self.overlay_iframe.set_visibility(True)
+        self.overlay_iframe.update()
+
+    def _show_overlay_error(self, message: str):
+        self.overlay_iframe.set_visibility(False)
+        self.overlay_placeholder.set_visibility(True)
+        self.overlay_placeholder.content = (
+            "<div style='display:flex;align-items:center;justify-content:center;"
+            "height:100%;color:#ffaa44;font-size:12px;text-align:center;padding:8px'>"
+            f"{message}</div>"
+        )
+        self.overlay_placeholder.update()
 
     def _build_title_tile(self):
         with ui.column().classes("w-full panel"):
@@ -288,6 +350,12 @@ class LastScoreTab:
         self.fetch_btn.disable()
         self.fetch_btn.set_text("Loading...")
 
+        self.state.username = (self.username_input.value or "").strip()
+        if self.state.overlay_enabled:
+            self.state.overlay_osu_id = None
+            self.state.overlay_url = ""
+            self._refresh_overlay()
+
         source = self.state.source
         if source == "api":
             username = self.state.username.strip()
@@ -409,6 +477,10 @@ class LastScoreTab:
             "accuracy": r.pp_result.accuracy,
             "max_combo": r.score.max_combo,
             "max_possible_combo": r.score.max_possible_combo,
+            "count300": r.score.count300,
+            "count100": r.score.count100,
+            "count50": r.score.count50,
+            "count_miss": r.score.count_miss,
             "pp": r.pp_result.pp,
             "ap": r.ap,
             "rank": r.grade,

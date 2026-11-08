@@ -98,7 +98,13 @@ class LastScoreTab(ctk.CTkFrame):
         ctk.CTkLabel(row, text="Source:", font=ctk.CTkFont(size=12),
                      text_color="#888").pack(side="left")
 
-        self.source_var = ctk.StringVar(value=self.config.source)
+        _source = self.config.source
+        if _source == "osu":
+            _source = "api"
+        if _source not in ("mcsu", "api"):
+            _source = "mcsu"
+        self.config.source = _source
+        self.source_var = ctk.StringVar(value=_source)
         self.username_var = ctk.StringVar(value=self.config.osu_username)
 
         def _on_source_change():

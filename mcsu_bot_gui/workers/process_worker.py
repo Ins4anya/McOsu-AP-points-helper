@@ -70,6 +70,16 @@ class ProcessWorker:
         self._thread = threading.Thread(target=self._run_web, daemon=True)
         self._thread.start()
 
+    def start_overlay(self, config=None):
+        if self._running:
+            return
+        self._running = True
+        self._stop_event.clear()
+        self._thread = threading.Thread(
+            target=self._run_overlay, args=(config,), daemon=True
+        )
+        self._thread.start()
+
     def stop(self):
         self._stop_event.set()
         self._running = False
@@ -140,5 +150,71 @@ class ProcessWorker:
             asyncio.run(_run())
         except Exception as e:
             self.on_output(f"Web server error: {e}")
+            self._running = False
+            self.on_stopped()
+
+    @staticmethod
+    def _point_overlay_at_project_db(config):
+        """Make the local overlay read the same DB the main server uses.
+
+        The main server is usually run from the project folder (the one that
+        receives the tunnel/sync). We locate its ``scores_server.db`` next to
+        the configured ``ap_db_path`` and pass it via ``DATABASE_URL``.
+        """
+        import os
+        from pathlib import Path
+
+        if not config:
+            return
+        ap_db = getattr(config, "ap_db_path", None)
+        if not ap_db:
+            return
+        candidate = Path(ap_db).resolve().parent / "scores_server.db"
+        if candidate.exists():
+            os.environ["DATABASE_URL"] = (
+                f"sqlite+aiosqlite:///{candidate.as_posix()}"
+            )
+
+    def _run_overlay(self, config=None):
+        import asyncio
+
+        self._point_overlay_at_project_db(config)
+
+        import uvicorn
+        from server.main import app
+
+        self.on_output("Starting overlay server on 127.0.0.1:8001...")
+
+        log_stream = _OutputStream(self.on_output)
+        handler = logging.StreamHandler(log_stream)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+
+        uvicorn_logger = logging.getLogger("uvicorn")
+        uvicorn_logger.handlers.clear()
+        uvicorn_logger.addHandler(handler)
+        uvicorn_logger.setLevel(logging.INFO)
+        uvicorn_logger.propagate = False
+
+        try:
+
+            async def _run():
+                cfg = uvicorn.Config(
+                    app, host="127.0.0.1", port=8001, log_level="info",
+                    log_config=None,
+                )
+                server = uvicorn.Server(cfg)
+
+                async def _waiter():
+                    while not self._stop_event.is_set():
+                        await asyncio.sleep(0.3)
+                    server.should_exit = True
+
+                asyncio.create_task(_waiter())
+                self.on_started()
+                await server.serve()
+
+            asyncio.run(_run())
+        except Exception as e:
+            self.on_output(f"Overlay server error: {e}")
             self._running = False
             self.on_stopped()

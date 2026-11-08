@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import secrets
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
@@ -20,19 +22,37 @@ from server.database import User, get_session
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+OAUTH_STATE_COOKIE = "oauth_state"
+
 
 @router.get("/login")
 async def login(config: ServerConfig = Depends(ServerConfig.from_env)):
-    url = get_authorize_url(config)
-    return RedirectResponse(url)
+    state = secrets.token_urlsafe(32)
+    response = RedirectResponse(get_authorize_url(config, state))
+    response.set_cookie(
+        key=OAUTH_STATE_COOKIE,
+        value=state,
+        max_age=600,
+        path="/auth",
+        httponly=True,
+        samesite="lax",
+        secure=config.site_url.startswith("https://"),
+    )
+    return response
 
 
 @router.get("/callback")
 async def callback(
+    request: Request,
     code: str = Query(...),
+    state: str = Query(""),
     config: ServerConfig = Depends(ServerConfig.from_env),
     session: AsyncSession = Depends(get_session),
 ):
+    expected_state = request.cookies.get(OAUTH_STATE_COOKIE, "")
+    if not expected_state or not secrets.compare_digest(expected_state, state):
+        raise HTTPException(status_code=400, detail="Invalid OAuth state")
+
     token_data = await exchange_code(config, code)
     osu_user = await fetch_osu_user(token_data["access_token"])
 
@@ -67,6 +87,7 @@ async def callback(
         secure=config.site_url.startswith("https://"),
         max_age=config.jwt_expire_minutes * 60,
     )
+    response.delete_cookie(OAUTH_STATE_COOKIE, path="/auth")
     return response
 
 

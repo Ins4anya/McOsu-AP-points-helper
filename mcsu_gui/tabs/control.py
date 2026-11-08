@@ -1,5 +1,7 @@
 from nicegui import ui
 
+from mcsu_bot.local_library import scan_songs
+from mcsu_bot.paths import ap_db_file
 from mcsu_bot.server_client import (
     check_auth,
     get_server_url,
@@ -7,6 +9,7 @@ from mcsu_bot.server_client import (
     parse_login_link,
     save_server_token,
     sync_all_scores,
+    sync_local_beatmaps,
 )
 from mcsu_gui.state import bus
 from mcsu_gui.theme import MUTED, PINK, SUCCESS
@@ -33,12 +36,18 @@ class ControlTab:
             on_started=lambda: bus.emit("web_status", {"text": "Active :8080", "color": SUCCESS}),
             on_stopped=lambda: bus.emit("web_status", {"text": "Idle", "color": MUTED}),
         )
+        self.overlay_process = ProcessWorker(
+            on_output=lambda m: bus.emit("log", m),
+            on_started=lambda: bus.emit("overlay_status", {"text": "Active :8001", "color": SUCCESS}),
+            on_stopped=lambda: bus.emit("overlay_status", {"text": "Idle", "color": MUTED}),
+        )
 
         self._setup_ui()
 
         bus.subscribe("log", self._on_log, key="control:log")
         bus.subscribe("bot_status", lambda p: self._paint(self.bot_badge, p), key="control:bot")
         bus.subscribe("web_status", lambda p: self._paint(self.web_badge, p), key="control:web")
+        bus.subscribe("overlay_status", lambda p: self._paint(self.overlay_badge, p), key="control:overlay")
         bus.subscribe("sync_done", self._sync_all_done, key="control:sync_done")
 
     def _setup_ui(self):
@@ -47,6 +56,7 @@ class ControlTab:
             self._build_server_section()
             self._build_bot_section()
             self._build_web_section()
+            self._build_overlay_section()
             self._build_console()
 
     def _build_source_selector(self):
@@ -72,6 +82,8 @@ class ControlTab:
 
     def _on_username_change(self, e):
         self.state.username = e.value
+        self.state.overlay_osu_id = None
+        self.state.overlay_url = ""
 
     def _build_server_section(self):
         config = self.state.config
@@ -105,6 +117,12 @@ class ControlTab:
             ui.label(
                 "After login, click \u201cCopy token\u201d on your profile page and paste it here"
             ).style("color: #8b95a7; font-size: 11px")
+
+            self.share_library_checkbox = ui.checkbox(
+                "Share my Songs folder list with the server (for Daily Challenge)",
+                value=config.share_local_beatmaps,
+            ).props("dense").style("color: #8b95a7; font-size: 12px")
+            self.share_library_checkbox.on_value_change(self._on_share_library_change)
 
             with ui.row().classes("items-center w-full justify-between no-wrap"):
                 self.server_badge = _status_badge("Not connected", MUTED)
@@ -161,6 +179,29 @@ class ControlTab:
             self.sync_all_btn.disable()
             bus.emit("server_status", {"text": "Server: Offline", "color": MUTED})
 
+    def _on_share_library_change(self, e):
+        if not e.value:
+            return
+        server_url = self.state.server_url
+        if not server_url or not check_auth(server_url):
+            bus.emit("log", "Songs library: connect to the server first, then press Sync Local Scores")
+            return
+        self._sync_library(server_url)
+
+    def _sync_library(self, server_url: str):
+        songs_dir = self.state.config.songs_dir
+        if not songs_dir or not songs_dir.is_dir():
+            bus.emit("log", "Songs library: songs_dir is not set or missing, skipped")
+            return
+
+        def _run():
+            beatmaps = scan_songs(songs_dir)
+            _, msg = sync_local_beatmaps(server_url, beatmaps)
+            bus.emit("log", f"Songs library: {msg}")
+
+        import threading
+        threading.Thread(target=_run, daemon=True).start()
+
     def _on_sync_all(self):
         server_url = self.state.server_url
         if not server_url or not check_auth(server_url):
@@ -171,8 +212,16 @@ class ControlTab:
         bus.emit("log", "Starting full sync...")
         ap_db_path = self.state.config.ap_db_path or _default_ap_db()
         source = self.state.source
+        share_library = self.share_library_checkbox.value
+        songs_dir = self.state.config.songs_dir
 
         def _run():
+            if share_library and songs_dir and songs_dir.is_dir():
+                beatmaps = scan_songs(songs_dir)
+                _, msg = sync_local_beatmaps(server_url, beatmaps)
+                bus.emit("log", f"Songs library: {msg}")
+            elif share_library:
+                bus.emit("log", "Songs library: songs_dir is not set or missing, skipped")
             synced, duplicate, failed, errors = sync_all_scores(
                 server_url, ap_db_path, source,
                 on_progress=lambda i, total: (
@@ -256,6 +305,29 @@ class ControlTab:
         free_port(8080)
         self.web_process.start_web(self.state.config)
 
+    def _build_overlay_section(self):
+        with ui.card().classes("w-full tile"):
+            with ui.row().classes("items-center w-full justify-between no-wrap"):
+                self.overlay_switch = ui.switch(
+                    "Launch Overlay  (:8001)", on_change=self._on_overlay_toggle
+                )
+                self.overlay_badge = _status_badge()
+
+    def _on_overlay_toggle(self, e):
+        self.state.overlay_enabled = bool(e.value)
+        if e.value:
+            free_port(8001)
+            self.overlay_process.start_overlay(self.state.config)
+        else:
+            self.overlay_process.stop()
+        bus.emit(
+            "overlay_status",
+            {
+                "text": "Active :8001" if e.value else "Idle",
+                "color": SUCCESS if e.value else MUTED,
+            },
+        )
+
     def _restore_switch(self, switch, text):
         switch.enable()
         switch.set_text(text)
@@ -269,8 +341,8 @@ class ControlTab:
     def stop_all(self):
         self.bot_process.stop()
         self.web_process.stop()
+        self.overlay_process.stop()
 
 
 def _default_ap_db():
-    from pathlib import Path
-    return Path(__file__).resolve().parent.parent.parent / "scores_ap.db"
+    return ap_db_file()
